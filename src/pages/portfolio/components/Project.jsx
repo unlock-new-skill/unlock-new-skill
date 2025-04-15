@@ -36,7 +36,7 @@ export default function Project() {
 			<div className="py-12 max-w-[1200px] mx-auto container_project">
 				{items.map((item, index) => {
 					return (
-						<div className="grid md:gap-24 lg:grid-cols-2 container_item h-[80vh] max-w-[80%] mx-auto">
+						<div className="grid md:gap-24 lg:grid-cols-2 container_item h-[80vh] max-w-[90%] mx-auto">
 							<div className="flex justify-center flex-col ">
 								<h3 className="font-bold text-[2rem] md:text-[3rem]">
 									{item.name}
