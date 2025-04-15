@@ -16,7 +16,7 @@ export default function useAnimation() {
 
 	useEffect(() => {
 		const lenis = new Lenis({
-			duration: 2.5,
+			duration: 5,
 			smooth: true
 		})
 
