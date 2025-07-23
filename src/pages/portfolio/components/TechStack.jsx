@@ -115,12 +115,12 @@ export function MyCV() {
 	function goToNextPage() {
 		setPageNumber(prev => Math.min(prev + 1, numPages))
 	}
-	const file = useMemo(() => ({ url: '/mycv.pdf' }), [])
+	const file = useMemo(() => ({ url: '/cv1.pdf' }), [])
 
 	function downloadCV() {
 		toast.info('Đang tải CV ...')
 		const link = document.createElement('a')
-		link.href = '/mycv.pdf'
+		link.href = '/cv1.pdf'
 		link.download = 'Pham_Van_Truong_React_Next_Nest_Developer_CV.pdf'
 		document.body.appendChild(link)
 		link.click()
