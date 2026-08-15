@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Single-row homepage / intro content (id is always 1).
+model SiteContent {
+  id            Int      @id @default(1)
+  heroName      String?
+  heroNameEn    String?
+  heroTagline   String?
+  heroTaglineEn String?
+  heroBio       String[] @default([]) // legacy fallback for introHtml
+  introHtml     String? // rich-text intro (TinyMCE), Vietnamese
+  introHtmlEn   String? // English
+  phone         String?
+  facebookUrl   String?
+  avatarUrl     String?
+  avatarKey     String? // R2 object key (empty for legacy /public assets)
+  techHeading   String?
+  techHeadingEn String?
+  updatedAt   DateTime @updatedAt @default(now())
+
+  @@map("site_content")
+}
+
+model TechStack {
+  id        String   @id @default(cuid())
+  name      String
+  imageUrl  String
+  imageKey  String? // R2 object key
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@map("tech_stack")
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  name              String
+  nameEn            String?
+  description       String? // legacy/plain fallback for descriptionHtml
+  descriptionHtml   String? // rich-text description (TinyMCE), Vietnamese
+  descriptionHtmlEn String? // English
+  tags              String[] @default([]) // labels; card kicker = tags[0]
+  urls        String[] @default([]) // array of link strings
+  imageUrl    String?
+  imageKey    String? // R2 object key
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@map("projects")
+}
+
+// Companies the person has worked at/with.
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  nameEn    String?
+  role      String?
+  roleEn    String?
+  period    String?
+  periodEn  String?
+  imageUrl  String?
+  imageKey  String? // R2 object key
+  url       String?
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@map("companies")
+}
+
+// CV PDF stored in R2; DB keeps the public URL + object key.
+model CvFile {
+  id         String   @id @default(cuid())
+  fileName   String?
+  url        String
+  key        String
+  isActive   Boolean  @default(true)
+  uploadedAt DateTime @default(now())
+
+  @@map("cv_files")
+}
