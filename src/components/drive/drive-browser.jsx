@@ -646,7 +646,11 @@ export default function DriveBrowser() {
 					setPreparing(`Đang đọc thư mục “${en.name}”…`)
 					const list = await readEntry(en, [])
 					if (!list.length) continue
-					if (list.some(x => isMedia(x.file))) individual.push(...list)
+					// Per-file only when the folder is a single flat level (no subfolders)
+					// AND every file is media (image/video/audio). Otherwise zip it.
+					const flat = list.every(x => x.dir.length === 1)
+					const allMedia = list.every(x => isMedia(x.file))
+					if (flat && allMedia) individual.push(...list)
 					else await enqueueZipFolder(en.name, list)
 				}
 			}
