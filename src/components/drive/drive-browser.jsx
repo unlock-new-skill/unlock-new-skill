@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -33,7 +34,8 @@ import {
 	startMultipart,
 	signParts,
 	finishMultipart,
-	abortUpload
+	abortUpload,
+	folderPath
 } from '@/lib/drive-actions'
 import FilePreview from './file-preview'
 
@@ -72,7 +74,37 @@ export default function DriveBrowser() {
 	// Synchronous re-entry lock (setBusy is async → can't block a double Enter/click).
 	const submitting = useRef(false)
 
+	const router = useRouter()
+	const pathname = usePathname()
+	const searchParams = useSearchParams()
+	const initialized = useRef(false)
+
 	const parentId = stack[stack.length - 1].id
+
+	// On first mount, rebuild the breadcrumb from a `?folder=<id>` deep-link.
+	useEffect(() => {
+		if (initialized.current) return
+		initialized.current = true
+		const fid = searchParams.get('folder')
+		if (!fid) return
+		folderPath({ id: fid })
+			.then(chain => {
+				if (chain?.length) setStack([ROOT, ...chain])
+			})
+			.catch(() => {})
+	}, [searchParams])
+
+	// Navigate to a new breadcrumb stack and reflect the current folder in the URL.
+	const navigate = useCallback(
+		nextStack => {
+			setStack(nextStack)
+			const id = nextStack[nextStack.length - 1].id
+			router.replace(id ? `${pathname}?folder=${id}` : pathname, {
+				scroll: false
+			})
+		},
+		[router, pathname]
+	)
 
 	const refresh = useCallback(async () => {
 		setLoading(true)
@@ -91,11 +123,20 @@ export default function DriveBrowser() {
 	}, [refresh])
 
 	function enterFolder(folder) {
-		setStack(s => [...s, { id: folder.id, name: folder.name }])
+		navigate([...stack, { id: folder.id, name: folder.name }])
 	}
 
 	function jumpTo(index) {
-		setStack(s => s.slice(0, index + 1))
+		navigate(stack.slice(0, index + 1))
+	}
+
+	async function copyLink() {
+		try {
+			await navigator.clipboard.writeText(window.location.href)
+			toast.success('Đã copy link thư mục')
+		} catch {
+			toast.error('Không copy được link')
+		}
 	}
 
 	const addBytes = useCallback(n => {
@@ -274,6 +315,14 @@ export default function DriveBrowser() {
 					))}
 				</div>
 				<div className="ml-auto flex items-center gap-2">
+					<Button
+						variant="outline"
+						size="sm"
+						onClick={copyLink}
+						title="Copy link thư mục hiện tại"
+					>
+						🔗 Link
+					</Button>
 					<Button
 						variant="outline"
 						size="sm"

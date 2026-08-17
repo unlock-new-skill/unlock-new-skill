@@ -52,6 +52,23 @@ export async function listFolder({ parentId = null } = {}) {
 	return { folders, files: files.map(withUrl) }
 }
 
+/** Ancestor chain root→…→folder (for rebuilding breadcrumb from a deep-link id). */
+export async function folderPath({ id }) {
+	await requireAdmin()
+	const chain = []
+	let cur = id
+	while (cur) {
+		const f = await prisma.folder.findUnique({
+			where: { id: cur },
+			select: { id: true, name: true, parentId: true }
+		})
+		if (!f) break
+		chain.unshift({ id: f.id, name: f.name })
+		cur = f.parentId
+	}
+	return chain
+}
+
 export async function createFolder({ name, parentId = null }) {
 	await requireAdmin()
 	const clean = String(name || '').trim()
