@@ -52,6 +52,15 @@ export async function listFolder({ parentId = null } = {}) {
 	return { folders, files: files.map(withUrl) }
 }
 
+/** All folders (flat) for building the tree + breadcrumb client-side, loaded once. */
+export async function listAllFolders() {
+	await requireAdmin()
+	return prisma.folder.findMany({
+		select: { id: true, name: true, parentId: true },
+		orderBy: { name: 'asc' }
+	})
+}
+
 /** Ancestor chain root→…→folder (for rebuilding breadcrumb from a deep-link id). */
 export async function folderPath({ id }) {
 	await requireAdmin()
