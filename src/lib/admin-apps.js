@@ -12,7 +12,7 @@ export const ADMIN_APPS = [
 		key: 'drive',
 		title: 'Drive',
 		description: 'Quản lý file cá nhân trên Cloudflare R2',
-		href: '/drive',
+		href: '/admin/drive',
 		icon: '📁'
 	}
 ]
