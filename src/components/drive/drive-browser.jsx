@@ -467,6 +467,76 @@ export default function DriveBrowser() {
 		runQueue()
 	}
 
+	// Recursively read a dropped FileSystem entry → [{ file, dir: string[] }].
+	// dir = folder path segments the file should live under (relative to drop).
+	function readEntry(entry, pathSegs = []) {
+		return new Promise(resolve => {
+			if (entry.isFile) {
+				entry.file(
+					file => resolve([{ file, dir: pathSegs }]),
+					() => resolve([])
+				)
+			} else if (entry.isDirectory) {
+				const reader = entry.createReader()
+				const collected = []
+				const readBatch = () => {
+					reader.readEntries(
+						async batch => {
+							if (!batch.length) {
+								// readEntries returns [] when the directory is exhausted.
+								const nested = await Promise.all(
+									collected.map(e => readEntry(e, [...pathSegs, entry.name]))
+								)
+								resolve(nested.flat())
+							} else {
+								collected.push(...batch)
+								readBatch() // keep pulling (batches of ~100)
+							}
+						},
+						() => resolve([])
+					)
+				}
+				readBatch()
+			} else resolve([])
+		})
+	}
+
+	// Create the folder tree for dropped dirs, then enqueue each file into it.
+	async function enqueueWithPaths(list) {
+		if (!list.length) return
+		const cache = new Map() // dir-path → folderId ('' = current folder)
+		cache.set('', parentId)
+		async function ensureDir(segs) {
+			const key = segs.join('/')
+			if (cache.has(key)) return cache.get(key)
+			const parent = await ensureDir(segs.slice(0, -1))
+			const folder = await createFolder({
+				name: segs[segs.length - 1],
+				parentId: parent
+			})
+			if (folder?.error) throw new Error(folder.error)
+			cache.set(key, folder.id)
+			return folder.id
+		}
+		const entries = []
+		for (const { file, dir } of list) {
+			const folderId = dir.length ? await ensureDir(dir) : parentId
+			entries.push({
+				id: crypto.randomUUID(),
+				file,
+				folderId,
+				name: file.name,
+				size: file.size,
+				status: 'pending',
+				error: null
+			})
+		}
+		await reload() // show the newly created folders
+		uploadsRef.current = [...uploadsRef.current, ...entries]
+		setUploads(uploadsRef.current)
+		runQueue()
+	}
+
 	function retryUpload(id) {
 		const entry = uploadsRef.current.find(u => u.id === id)
 		if (!entry || entry.status === 'uploading') return
@@ -500,7 +570,22 @@ export default function DriveBrowser() {
 	function onDrop(e) {
 		e.preventDefault()
 		e.stopPropagation()
-		enqueue(e.dataTransfer.files)
+		// Internal file-move drops are handled by folder targets; ignore here.
+		if (e.dataTransfer.types.includes(MOVE_MIME)) return
+		// Grab FileSystem entries synchronously (items become invalid after await)
+		// so we can read files INSIDE dropped folders + recreate the structure.
+		const entries = []
+		for (const it of e.dataTransfer.items || []) {
+			const en = it.webkitGetAsEntry?.()
+			if (en) entries.push(en)
+		}
+		if (entries.length) {
+			Promise.all(entries.map(en => readEntry(en, [])))
+				.then(lists => enqueueWithPaths(lists.flat()))
+				.catch(err => toast.error(err.message))
+		} else {
+			enqueue(e.dataTransfer.files) // fallback (no entry API)
+		}
 	}
 
 	const upDone = uploads.filter(u => u.status === 'done').length
