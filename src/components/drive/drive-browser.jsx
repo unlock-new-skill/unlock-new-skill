@@ -81,6 +81,7 @@ export default function DriveBrowser() {
 	const [uploads, setUploads] = useState([])
 	const uploadsRef = useRef([]) // mirror for the runner (holds file + folderId)
 	const runningRef = useRef(false)
+	const [preparing, setPreparing] = useState('') // status while reading/zipping a dropped folder
 	const [nameDialog, setNameDialog] = useState(null) // { mode, id, value }
 	const [deleteTarget, setDeleteTarget] = useState(null) // { type, id, name }
 	const [view, setView] = useState('grid') // 'grid' | 'list'
@@ -602,7 +603,7 @@ export default function DriveBrowser() {
 	// Zip a dropped folder's contents (source/text folders) into one .zip and
 	// enqueue it as a single upload into the current folder.
 	async function enqueueZipFolder(folderName, list) {
-		toast.message(`Đang nén ${folderName}…`)
+		setPreparing(`Đang nén ${folderName}… (${list.length} file)`)
 		const files = {}
 		for (const { file, dir } of list) {
 			// dir[0] is the dropped folder's name; keep the relative path inside the zip.
@@ -610,6 +611,7 @@ export default function DriveBrowser() {
 				await file.arrayBuffer()
 			)
 		}
+		await sleep(0) // let the "Đang nén…" banner paint before the sync zip blocks
 		const zipped = zipSync(files, { level: 6 })
 		const zipFile = new File([zipped], `${folderName}.zip`, {
 			type: 'application/zip'
@@ -633,19 +635,25 @@ export default function DriveBrowser() {
 	//  - folder of only text/source files       → zip it, upload one .zip
 	//  - loose files                             → upload individually
 	async function processDrop(entries) {
-		const individual = [] // [{ file, dir }]
-		for (const en of entries) {
-			if (en.isFile) {
-				const file = await new Promise((res, rej) => en.file(res, rej))
-				individual.push({ file, dir: [] })
-			} else if (en.isDirectory) {
-				const list = await readEntry(en, [])
-				if (!list.length) continue
-				if (list.some(x => isMedia(x.file))) individual.push(...list)
-				else await enqueueZipFolder(en.name, list)
+		setPreparing('Đang đọc thư mục thả vào…')
+		try {
+			const individual = [] // [{ file, dir }]
+			for (const en of entries) {
+				if (en.isFile) {
+					const file = await new Promise((res, rej) => en.file(res, rej))
+					individual.push({ file, dir: [] })
+				} else if (en.isDirectory) {
+					setPreparing(`Đang đọc thư mục “${en.name}”…`)
+					const list = await readEntry(en, [])
+					if (!list.length) continue
+					if (list.some(x => isMedia(x.file))) individual.push(...list)
+					else await enqueueZipFolder(en.name, list)
+				}
 			}
+			if (individual.length) await enqueueWithPaths(individual)
+		} finally {
+			setPreparing('')
 		}
-		if (individual.length) await enqueueWithPaths(individual)
 	}
 
 	function onDrop(e) {
@@ -776,9 +784,9 @@ export default function DriveBrowser() {
 	}
 
 	return (
-		<div className="grid gap-4 md:grid-cols-[220px_1fr]">
+		<div className="grid items-start gap-4 md:grid-cols-[220px_1fr]">
 			{/* Tree sidebar (loaded once) */}
-			<aside className="h-fit rounded-lg border border-zinc-800 p-2">
+			<aside className="sticky top-4 max-h-[calc(100vh-6rem)] overflow-auto rounded-lg border border-zinc-800 p-2">
 				<button
 					type="button"
 					onClick={() => setActive(null)}
@@ -1130,6 +1138,14 @@ export default function DriveBrowser() {
 			</div>
 
 			<FilePreview file={preview} onClose={() => setPreview(null)} />
+
+			{/* Drop preparation banner (reading folder / zipping) */}
+			{preparing && (
+				<div className="fixed bottom-4 left-4 z-30 flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm shadow-xl">
+					<Loader2 className="h-4 w-4 animate-spin" />
+					{preparing}
+				</div>
+			)}
 
 			{/* Upload overview panel */}
 			{uploads.length > 0 && (
