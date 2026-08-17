@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
-import { zip } from 'fflate'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -654,47 +653,8 @@ export default function DriveBrowser() {
 		setUploads([])
 	}
 
-	const isMedia = file => /^(image|video|audio)\//.test(file.type || '')
-
-	// Zip a dropped folder's contents (source/text folders) into one .zip and
-	// enqueue it as a single upload into the current folder.
-	async function enqueueZipFolder(folderName, list) {
-		setPreparing(`Đang đọc ${folderName}… (${list.length} file)`)
-		const files = {}
-		for (const { file, dir } of list) {
-			// dir[0] is the dropped folder's name; keep the relative path inside the zip.
-			files[[...dir, file.name].join('/')] = new Uint8Array(
-				await file.arrayBuffer()
-			)
-		}
-		setPreparing(`Đang nén ${folderName}… (${list.length} file)`)
-		// Async, worker-threaded zip → does NOT block the UI (zipSync froze the tab).
-		const zipped = await new Promise((resolve, reject) => {
-			zip(files, { level: 6 }, (err, data) =>
-				err ? reject(err) : resolve(data)
-			)
-		})
-		const zipFile = new File([zipped], `${folderName}.zip`, {
-			type: 'application/zip'
-		})
-		const entry = {
-			id: crypto.randomUUID(),
-			file: zipFile,
-			folderId: parentId,
-			name: zipFile.name,
-			size: zipFile.size,
-			status: 'pending',
-			error: null
-		}
-		uploadsRef.current = [...uploadsRef.current, entry]
-		setUploads(uploadsRef.current)
-		runQueue()
-	}
-
-	// Classify each dropped top-level entry:
-	//  - folder WITH media (image/video/audio) → upload files individually (recreate tree)
-	//  - folder of only text/source files       → zip it, upload one .zip
-	//  - loose files                             → upload individually
+	// Only accept a single flat folder level (no subfolders). Nested folders are
+	// rejected — the user should zip/rar them and upload the archive instead.
 	async function processDrop(entries) {
 		setPreparing('Đang đọc thư mục thả vào…')
 		try {
@@ -707,12 +667,13 @@ export default function DriveBrowser() {
 					setPreparing(`Đang đọc thư mục “${en.name}”…`)
 					const list = await readEntry(en, [])
 					if (!list.length) continue
-					// Per-file only when the folder is a single flat level (no subfolders)
-					// AND every file is media (image/video/audio). Otherwise zip it.
-					const flat = list.every(x => x.dir.length === 1)
-					const allMedia = list.every(x => isMedia(x.file))
-					if (flat && allMedia) individual.push(...list)
-					else await enqueueZipFolder(en.name, list)
+					if (list.some(x => x.dir.length > 1)) {
+						toast.error(
+							`“${en.name}” có thư mục con — chỉ nhận folder 1 cấp. Hãy tự nén .zip/.rar rồi upload.`
+						)
+						continue
+					}
+					individual.push(...list)
 				}
 			}
 			if (individual.length) await enqueueWithPaths(individual)
