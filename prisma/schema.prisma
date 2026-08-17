@@ -85,3 +85,31 @@ model CvFile {
 
   @@map("cv_files")
 }
+
+// Drive: DB-backed folder tree. R2 (personal bucket) holds the blobs; the tree
+// + metadata live here so rename/move is a DB-only op (no R2 copy).
+model Folder {
+  id        String       @id @default(cuid())
+  name      String
+  parentId  String? // null = root
+  parent    Folder?      @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children  Folder[]     @relation("FolderTree")
+  files     FileObject[]
+  createdAt DateTime     @default(now())
+
+  @@map("folders")
+}
+
+// Drive file index; `key` is the opaque R2 object key in the personal bucket.
+model FileObject {
+  id        String   @id @default(cuid())
+  folderId  String? // null = root
+  folder    Folder?  @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  key       String   @unique
+  name      String
+  mime      String
+  size      BigInt // bytes; BigInt so >2.14 GB files (video) don't overflow Int
+  createdAt DateTime @default(now())
+
+  @@map("file_objects")
+}

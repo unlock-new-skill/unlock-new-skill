@@ -14,5 +14,5 @@ export async function middleware(req) {
 	return NextResponse.next()
 }
 
-// Only guard the admin area.
-export const config = { matcher: ['/admin/:path*'] }
+// Guard the admin area + personal drive.
+export const config = { matcher: ['/admin/:path*', '/drive/:path*'] }
