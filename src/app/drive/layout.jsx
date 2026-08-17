@@ -34,7 +34,7 @@ export default function DriveLayout({ children }) {
 					`R2_PUBLIC_BASE_PERSONAL` vào .env.local.
 				</div>
 			)}
-			<main className="mx-auto max-w-5xl px-6 py-8">{children}</main>
+			<main className="mx-auto w-full max-w-[1920px] px-6 py-8">{children}</main>
 		</div>
 	)
 }

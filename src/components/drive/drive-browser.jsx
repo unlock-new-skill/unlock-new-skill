@@ -68,6 +68,9 @@ export default function DriveBrowser() {
 	const [preview, setPreview] = useState(null)
 	const [nameDialog, setNameDialog] = useState(null) // { mode, id, value }
 	const [deleteTarget, setDeleteTarget] = useState(null) // { type, id, name }
+	const [view, setView] = useState('grid') // 'grid' | 'list'
+	const [search, setSearch] = useState('')
+	const [sort, setSort] = useState({ key: 'name', dir: 'asc' }) // key: name|size|date
 	// Synchronous re-entry lock (setBusy is async → can't block a double Enter/click).
 	const submitting = useRef(false)
 
@@ -96,6 +99,32 @@ export default function DriveBrowser() {
 		pid => allFolders.filter(f => (f.parentId ?? null) === pid),
 		[allFolders]
 	)
+
+	// --- search + sort (client-side over the current level) ---
+	function sortList(list) {
+		const dir = sort.dir === 'asc' ? 1 : -1
+		return [...list].sort((a, b) => {
+			let cmp
+			if (sort.key === 'size') cmp = (a.size || 0) - (b.size || 0)
+			else if (sort.key === 'date')
+				cmp = new Date(a.createdAt) - new Date(b.createdAt)
+			else cmp = a.name.localeCompare(b.name)
+			return cmp * dir
+		})
+	}
+
+	const q = search.trim().toLowerCase()
+	const shownFolders = useMemo(
+		() => sortList(data.folders.filter(f => f.name.toLowerCase().includes(q))),
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[data.folders, q, sort]
+	)
+	const shownFiles = useMemo(
+		() => sortList(data.files.filter(f => f.name.toLowerCase().includes(q))),
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[data.files, q, sort]
+	)
+	const isEmpty = shownFolders.length === 0 && shownFiles.length === 0
 
 	// --- data loaders ---
 	const loadTree = useCallback(async () => {
@@ -164,6 +193,54 @@ export default function DriveBrowser() {
 
 	function downloadFile(url) {
 		window.open(url, '_blank', 'noopener')
+	}
+
+	function folderMenu(folder) {
+		return [
+			{ label: 'Mở', onClick: () => setActive(folder.id) },
+			{
+				label: 'Copy link',
+				onClick: () =>
+					copyText(folderShareUrl(folder.id), 'Đã copy link thư mục')
+			},
+			{
+				label: 'Đổi tên',
+				onClick: () =>
+					setNameDialog({
+						mode: 'rename-folder',
+						id: folder.id,
+						value: folder.name
+					})
+			},
+			{
+				label: 'Xoá',
+				danger: true,
+				onClick: () =>
+					setDeleteTarget({ type: 'folder', id: folder.id, name: folder.name })
+			}
+		]
+	}
+
+	function fileMenu(file) {
+		return [
+			{ label: 'Xem', onClick: () => setPreview(file) },
+			{ label: 'Tải xuống', onClick: () => downloadFile(file.url) },
+			{
+				label: 'Copy link',
+				onClick: () => copyText(file.url, 'Đã copy link file')
+			},
+			{
+				label: 'Đổi tên',
+				onClick: () =>
+					setNameDialog({ mode: 'rename-file', id: file.id, value: file.name })
+			},
+			{
+				label: 'Xoá',
+				danger: true,
+				onClick: () =>
+					setDeleteTarget({ type: 'file', id: file.id, name: file.name })
+			}
+		]
 	}
 
 	// --- uploads ---
@@ -420,7 +497,50 @@ export default function DriveBrowser() {
 					</div>
 				</div>
 
-				{/* Drop zone + grid */}
+				{/* Toolbar: search / sort / view toggle */}
+				<div className="flex flex-wrap items-center gap-2">
+					<Input
+						value={search}
+						onChange={e => setSearch(e.target.value)}
+						placeholder="Tìm trong thư mục…"
+						className="h-9 max-w-xs"
+					/>
+					<select
+						value={`${sort.key}:${sort.dir}`}
+						onChange={e => {
+							const [key, dir] = e.target.value.split(':')
+							setSort({ key, dir })
+						}}
+						className="h-9 rounded-md border border-zinc-700 bg-zinc-900 px-2 text-sm text-zinc-200"
+					>
+						<option value="name:asc">Tên A→Z</option>
+						<option value="name:desc">Tên Z→A</option>
+						<option value="date:desc">Mới nhất</option>
+						<option value="date:asc">Cũ nhất</option>
+						<option value="size:desc">Lớn nhất</option>
+						<option value="size:asc">Nhỏ nhất</option>
+					</select>
+					<div className="ml-auto flex overflow-hidden rounded-md border border-zinc-700">
+						<button
+							type="button"
+							onClick={() => setView('grid')}
+							title="Dạng lưới"
+							className={`px-3 py-1.5 text-sm ${view === 'grid' ? 'bg-zinc-800 text-white' : 'text-zinc-400'}`}
+						>
+							▦
+						</button>
+						<button
+							type="button"
+							onClick={() => setView('list')}
+							title="Dạng danh sách"
+							className={`px-3 py-1.5 text-sm ${view === 'list' ? 'bg-zinc-800 text-white' : 'text-zinc-400'}`}
+						>
+							☰
+						</button>
+					</div>
+				</div>
+
+				{/* Drop zone + items */}
 				<div
 					onDragOver={e => e.preventDefault()}
 					onDrop={onDrop}
@@ -428,50 +548,19 @@ export default function DriveBrowser() {
 				>
 					{loading ? (
 						<p className="text-sm text-zinc-500">Đang tải…</p>
-					) : data.folders.length === 0 && data.files.length === 0 ? (
+					) : isEmpty ? (
 						<p className="grid h-64 place-items-center text-sm text-zinc-600">
-							Trống. Kéo-thả file vào đây hoặc bấm Upload.
+							{q ? 'Không tìm thấy.' : 'Trống. Kéo-thả file vào đây hoặc bấm Upload.'}
 						</p>
-					) : (
-						<div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-							{data.folders.map(folder => (
+					) : view === 'grid' ? (
+						<div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">
+							{shownFolders.map(folder => (
 								<div
 									key={folder.id}
 									className="relative rounded-lg border border-zinc-800 bg-zinc-900 p-3 hover:border-zinc-600"
 								>
 									<div className="absolute right-1 top-1">
-										<KebabMenu
-											items={[
-												{ label: 'Mở', onClick: () => setActive(folder.id) },
-												{
-													label: 'Copy link',
-													onClick: () =>
-														copyText(
-															folderShareUrl(folder.id),
-															'Đã copy link thư mục'
-														)
-												},
-												{
-													label: 'Đổi tên',
-													onClick: () =>
-														setNameDialog({
-															mode: 'rename-folder',
-															id: folder.id,
-															value: folder.name
-														})
-												},
-												{
-													label: 'Xoá',
-													danger: true,
-													onClick: () =>
-														setDeleteTarget({
-															type: 'folder',
-															id: folder.id,
-															name: folder.name
-														})
-												}
-											]}
-										/>
+										<KebabMenu items={folderMenu(folder)} />
 									</div>
 									<button
 										type="button"
@@ -484,41 +573,13 @@ export default function DriveBrowser() {
 								</div>
 							))}
 
-							{data.files.map(file => (
+							{shownFiles.map(file => (
 								<div
 									key={file.id}
 									className="relative rounded-lg border border-zinc-800 bg-zinc-900 p-3 hover:border-zinc-600"
 								>
 									<div className="absolute right-1 top-1 z-10">
-										<KebabMenu
-											items={[
-												{ label: 'Xem', onClick: () => setPreview(file) },
-												{ label: 'Tải xuống', onClick: () => downloadFile(file.url) },
-												{
-													label: 'Copy link',
-													onClick: () => copyText(file.url, 'Đã copy link file')
-												},
-												{
-													label: 'Đổi tên',
-													onClick: () =>
-														setNameDialog({
-															mode: 'rename-file',
-															id: file.id,
-															value: file.name
-														})
-												},
-												{
-													label: 'Xoá',
-													danger: true,
-													onClick: () =>
-														setDeleteTarget({
-															type: 'file',
-															id: file.id,
-															name: file.name
-														})
-												}
-											]}
-										/>
+										<KebabMenu items={fileMenu(file)} />
 									</div>
 									<button
 										type="button"
@@ -546,6 +607,81 @@ export default function DriveBrowser() {
 									</button>
 								</div>
 							))}
+						</div>
+					) : (
+						<div className="overflow-x-auto">
+							<table className="w-full text-sm">
+								<thead className="text-left text-xs text-zinc-500">
+									<tr className="border-b border-zinc-800">
+										<th className="py-2 pr-3 font-medium">Tên</th>
+										<th className="py-2 pr-3 font-medium">Loại</th>
+										<th className="py-2 pr-3 font-medium">Kích thước</th>
+										<th className="py-2 pr-3 font-medium">Ngày</th>
+										<th className="w-8 py-2" />
+									</tr>
+								</thead>
+								<tbody>
+									{shownFolders.map(folder => (
+										<tr
+											key={folder.id}
+											className="border-b border-zinc-900 hover:bg-zinc-900"
+										>
+											<td className="py-2 pr-3">
+												<button
+													type="button"
+													onClick={() => setActive(folder.id)}
+													className="flex items-center gap-2 text-left"
+												>
+													📁 <span className="truncate">{folder.name}</span>
+												</button>
+											</td>
+											<td className="py-2 pr-3 text-zinc-500">Thư mục</td>
+											<td className="py-2 pr-3 text-zinc-500">—</td>
+											<td className="py-2 pr-3 text-zinc-500">
+												{new Date(folder.createdAt).toLocaleDateString('vi-VN')}
+											</td>
+											<td className="py-2">
+												<KebabMenu items={folderMenu(folder)} />
+											</td>
+										</tr>
+									))}
+									{shownFiles.map(file => (
+										<tr
+											key={file.id}
+											className="border-b border-zinc-900 hover:bg-zinc-900"
+										>
+											<td className="py-2 pr-3">
+												<button
+													type="button"
+													onClick={() => setPreview(file)}
+													className="flex items-center gap-2 text-left"
+												>
+													<span>
+														{file.mime?.startsWith('image/')
+															? '🖼️'
+															: file.mime?.startsWith('video/')
+																? '🎬'
+																: '📄'}
+													</span>
+													<span className="truncate">{file.name}</span>
+												</button>
+											</td>
+											<td className="py-2 pr-3 text-zinc-500">
+												{file.mime || '—'}
+											</td>
+											<td className="py-2 pr-3 text-zinc-500">
+												{fmtSize(file.size)}
+											</td>
+											<td className="py-2 pr-3 text-zinc-500">
+												{new Date(file.createdAt).toLocaleDateString('vi-VN')}
+											</td>
+											<td className="py-2">
+												<KebabMenu items={fileMenu(file)} />
+											</td>
+										</tr>
+									))}
+								</tbody>
+							</table>
 						</div>
 					)}
 				</div>
@@ -596,7 +732,7 @@ export default function DriveBrowser() {
 						<AlertDialogTitle>Xoá “{deleteTarget?.name}”?</AlertDialogTitle>
 						<AlertDialogDescription>
 							{deleteTarget?.type === 'folder'
-								? 'Xoá thư mục sẽ xoá toàn bộ file + thư mục con (cả trên R2). Không hoàn tác được.'
+								? 'Chỉ xoá được thư mục rỗng. Nếu còn file/thư mục con bên trong, hãy xoá hết trước.'
 								: 'File sẽ bị xoá khỏi R2 và không hoàn tác được.'}
 						</AlertDialogDescription>
 					</AlertDialogHeader>

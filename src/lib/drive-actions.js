@@ -7,7 +7,6 @@ import {
 	createPresignedPutUrl,
 	publicUrl,
 	deleteObject,
-	deleteObjects,
 	isPersonalR2Configured,
 	createMultipart,
 	presignUploadPart,
@@ -93,27 +92,20 @@ export async function renameFolder({ id, name }) {
 }
 
 /**
- * Delete a folder subtree: gather every descendant file key first, purge them
- * from R2, then delete the folder (DB cascade removes descendant rows).
+ * Delete a folder — only when empty. Blocks if it still holds files or
+ * subfolders (user must clear contents first). Avoids accidental mass deletes.
  */
 export async function deleteFolder({ id }) {
 	await requireAdmin()
-	const keys = []
-	// BFS over the folder subtree collecting file keys.
-	let frontier = [id]
-	while (frontier.length) {
-		const files = await prisma.fileObject.findMany({
-			where: { folderId: { in: frontier } },
-			select: { key: true }
-		})
-		keys.push(...files.map(f => f.key))
-		const children = await prisma.folder.findMany({
-			where: { parentId: { in: frontier } },
-			select: { id: true }
-		})
-		frontier = children.map(c => c.id)
+	const [fileCount, subCount] = await Promise.all([
+		prisma.fileObject.count({ where: { folderId: id } }),
+		prisma.folder.count({ where: { parentId: id } })
+	])
+	if (fileCount > 0 || subCount > 0) {
+		return {
+			error: 'Thư mục còn nội dung — xoá hết file và thư mục con bên trong trước.'
+		}
 	}
-	await deleteObjects(keys, BUCKET)
 	await prisma.folder.delete({ where: { id } })
 	return { ok: true }
 }
