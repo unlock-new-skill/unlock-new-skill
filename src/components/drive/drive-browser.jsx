@@ -145,6 +145,33 @@ export default function DriveBrowser() {
 	)
 	const isEmpty = shownFolders.length === 0 && shownFiles.length === 0
 
+	// Lazy windowing: render ~PAGE files, load the next page as the sentinel nears view.
+	const PAGE = 30
+	const [visibleCount, setVisibleCount] = useState(PAGE)
+	const sentinelRef = useRef(null)
+	const visibleFiles = shownFiles.slice(0, visibleCount)
+	const hasMore = visibleCount < shownFiles.length
+
+	// Reset the window whenever the listing/filter/sort changes.
+	useEffect(() => {
+		setVisibleCount(PAGE)
+	}, [data, q, sort])
+
+	// Grow the window when the sentinel scrolls near (rootMargin preloads next page).
+	useEffect(() => {
+		const el = sentinelRef.current
+		if (!el || !hasMore) return
+		const io = new IntersectionObserver(
+			entries => {
+				if (entries[0].isIntersecting)
+					setVisibleCount(c => Math.min(c + PAGE, shownFiles.length))
+			},
+			{ rootMargin: '600px' }
+		)
+		io.observe(el)
+		return () => io.disconnect()
+	}, [hasMore, shownFiles.length])
+
 	// --- data loaders ---
 	const loadTree = useCallback(async () => {
 		try {
@@ -982,7 +1009,7 @@ export default function DriveBrowser() {
 								</div>
 							))}
 
-							{shownFiles.map(file => (
+							{visibleFiles.map(file => (
 								<div
 									key={file.id}
 									draggable
@@ -1013,6 +1040,8 @@ export default function DriveBrowser() {
 											<img
 												src={file.url}
 												alt={file.name}
+												loading="lazy"
+												decoding="async"
 												className="mb-2 h-24 w-full rounded object-cover"
 											/>
 										) : (
@@ -1087,7 +1116,7 @@ export default function DriveBrowser() {
 											</td>
 										</tr>
 									))}
-									{shownFiles.map(file => (
+									{visibleFiles.map(file => (
 										<tr
 											key={file.id}
 											draggable
@@ -1136,6 +1165,17 @@ export default function DriveBrowser() {
 									))}
 								</tbody>
 							</table>
+						</div>
+					)}
+
+					{/* Lazy-load sentinel: grows the window as it nears the viewport */}
+					{!loading && hasMore && (
+						<div
+							ref={sentinelRef}
+							className="flex items-center justify-center gap-2 py-4 text-sm text-zinc-500"
+						>
+							<Loader2 className="h-4 w-4 animate-spin" />
+							Đang tải thêm… ({visibleFiles.length}/{shownFiles.length})
 						</div>
 					)}
 				</div>
