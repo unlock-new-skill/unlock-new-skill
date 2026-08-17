@@ -37,6 +37,7 @@ import {
 	abortUpload
 } from '@/lib/drive-actions'
 import FilePreview from './file-preview'
+import KebabMenu from './kebab-menu'
 
 // Files above this use multipart (parallel parts); below use a single PUT.
 const MULTIPART_THRESHOLD = 100 * 1024 * 1024 // 100 MB
@@ -144,13 +145,25 @@ export default function DriveBrowser() {
 		window.history.replaceState(null, '', url)
 	}, [])
 
-	async function copyLink() {
+	async function copyText(text, okMsg) {
 		try {
-			await navigator.clipboard.writeText(window.location.href)
-			toast.success('Đã copy link thư mục')
+			await navigator.clipboard.writeText(text)
+			toast.success(okMsg)
 		} catch {
 			toast.error('Không copy được link')
 		}
+	}
+
+	function copyLink() {
+		copyText(window.location.href, 'Đã copy link thư mục')
+	}
+
+	function folderShareUrl(id) {
+		return `${window.location.origin}${window.location.pathname}?folder=${id}`
+	}
+
+	function downloadFile(url) {
+		window.open(url, '_blank', 'noopener')
 	}
 
 	// --- uploads ---
@@ -424,52 +437,89 @@ export default function DriveBrowser() {
 							{data.folders.map(folder => (
 								<div
 									key={folder.id}
-									className="group relative rounded-lg border border-zinc-800 bg-zinc-900 p-3 hover:border-zinc-600"
+									className="relative rounded-lg border border-zinc-800 bg-zinc-900 p-3 hover:border-zinc-600"
 								>
+									<div className="absolute right-1 top-1">
+										<KebabMenu
+											items={[
+												{ label: 'Mở', onClick: () => setActive(folder.id) },
+												{
+													label: 'Copy link',
+													onClick: () =>
+														copyText(
+															folderShareUrl(folder.id),
+															'Đã copy link thư mục'
+														)
+												},
+												{
+													label: 'Đổi tên',
+													onClick: () =>
+														setNameDialog({
+															mode: 'rename-folder',
+															id: folder.id,
+															value: folder.name
+														})
+												},
+												{
+													label: 'Xoá',
+													danger: true,
+													onClick: () =>
+														setDeleteTarget({
+															type: 'folder',
+															id: folder.id,
+															name: folder.name
+														})
+												}
+											]}
+										/>
+									</div>
 									<button
 										type="button"
 										onClick={() => setActive(folder.id)}
-										className="flex w-full items-center gap-2 text-left"
+										className="flex w-full items-center gap-2 pr-6 text-left"
 									>
 										<span className="text-2xl">📁</span>
 										<span className="truncate text-sm">{folder.name}</span>
 									</button>
-									<div className="mt-2 flex gap-1 opacity-0 group-hover:opacity-100">
-										<button
-											type="button"
-											className="text-xs text-zinc-400 hover:text-zinc-100"
-											onClick={() =>
-												setNameDialog({
-													mode: 'rename-folder',
-													id: folder.id,
-													value: folder.name
-												})
-											}
-										>
-											Đổi tên
-										</button>
-										<button
-											type="button"
-											className="text-xs text-red-400 hover:text-red-300"
-											onClick={() =>
-												setDeleteTarget({
-													type: 'folder',
-													id: folder.id,
-													name: folder.name
-												})
-											}
-										>
-											Xoá
-										</button>
-									</div>
 								</div>
 							))}
 
 							{data.files.map(file => (
 								<div
 									key={file.id}
-									className="group relative rounded-lg border border-zinc-800 bg-zinc-900 p-3 hover:border-zinc-600"
+									className="relative rounded-lg border border-zinc-800 bg-zinc-900 p-3 hover:border-zinc-600"
 								>
+									<div className="absolute right-1 top-1 z-10">
+										<KebabMenu
+											items={[
+												{ label: 'Xem', onClick: () => setPreview(file) },
+												{ label: 'Tải xuống', onClick: () => downloadFile(file.url) },
+												{
+													label: 'Copy link',
+													onClick: () => copyText(file.url, 'Đã copy link file')
+												},
+												{
+													label: 'Đổi tên',
+													onClick: () =>
+														setNameDialog({
+															mode: 'rename-file',
+															id: file.id,
+															value: file.name
+														})
+												},
+												{
+													label: 'Xoá',
+													danger: true,
+													onClick: () =>
+														setDeleteTarget({
+															type: 'file',
+															id: file.id,
+															name: file.name
+														})
+												}
+											]}
+										/>
+									</div>
 									<button
 										type="button"
 										onClick={() => setPreview(file)}
@@ -487,48 +537,13 @@ export default function DriveBrowser() {
 												{file.mime?.startsWith('video/') ? '🎬' : '📄'}
 											</div>
 										)}
-										<span className="block truncate text-sm">{file.name}</span>
+										<span className="block truncate pr-6 text-sm">
+											{file.name}
+										</span>
 										<span className="text-xs text-zinc-500">
 											{fmtSize(file.size)}
 										</span>
 									</button>
-									<div className="mt-2 flex gap-1 opacity-0 group-hover:opacity-100">
-										<a
-											href={file.url}
-											target="_blank"
-											rel="noreferrer"
-											download
-											className="text-xs text-zinc-400 hover:text-zinc-100"
-										>
-											Tải
-										</a>
-										<button
-											type="button"
-											className="text-xs text-zinc-400 hover:text-zinc-100"
-											onClick={() =>
-												setNameDialog({
-													mode: 'rename-file',
-													id: file.id,
-													value: file.name
-												})
-											}
-										>
-											Đổi tên
-										</button>
-										<button
-											type="button"
-											className="text-xs text-red-400 hover:text-red-300"
-											onClick={() =>
-												setDeleteTarget({
-													type: 'file',
-													id: file.id,
-													name: file.name
-												})
-											}
-										>
-											Xoá
-										</button>
-									</div>
 								</div>
 							))}
 						</div>
