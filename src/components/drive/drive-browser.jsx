@@ -88,6 +88,7 @@ export default function DriveBrowser() {
 	const [search, setSearch] = useState('')
 	const [sort, setSort] = useState({ key: 'name', dir: 'asc' }) // key: name|size|date
 	const [selected, setSelected] = useState(() => new Set()) // selected file ids
+	const [selectMode, setSelectMode] = useState(false) // checkbox/select mode on/off
 	const [moveOpen, setMoveOpen] = useState(false) // move-to-folder dialog
 	const [dragOverId, setDragOverId] = useState(undefined) // folder highlighted on drag (null=root)
 	// Synchronous re-entry lock (setBusy is async → can't block a double Enter/click).
@@ -156,6 +157,15 @@ export default function DriveBrowser() {
 	useEffect(() => {
 		setVisibleCount(PAGE)
 	}, [data, q, sort])
+
+	// End drag-paint selection on pointer release anywhere.
+	useEffect(() => {
+		const up = () => {
+			painting.current = false
+		}
+		window.addEventListener('pointerup', up)
+		return () => window.removeEventListener('pointerup', up)
+	}, [])
 
 	// Grow the window when the sentinel scrolls near (rootMargin preloads next page).
 	useEffect(() => {
@@ -316,16 +326,35 @@ export default function DriveBrowser() {
 	// --- selection + bulk / move ---
 	const MOVE_MIME = 'application/x-drive-file-ids'
 
-	function toggleSelect(id) {
+	const selectAllFiles = () => setSelected(new Set(shownFiles.map(f => f.id)))
+	const clearSelection = () => setSelected(new Set())
+
+	// Selection mode: shows checkboxes; card click toggles; drag paints selection.
+	const painting = useRef(false)
+	const paintValue = useRef(true) // true = selecting, false = deselecting
+	function setSel(id, value) {
 		setSelected(prev => {
 			const n = new Set(prev)
-			if (n.has(id)) n.delete(id)
-			else n.add(id)
+			if (value) n.add(id)
+			else n.delete(id)
 			return n
 		})
 	}
-	const selectAllFiles = () => setSelected(new Set(shownFiles.map(f => f.id)))
-	const clearSelection = () => setSelected(new Set())
+	function onItemPointerDown(id) {
+		if (!selectMode) return
+		painting.current = true
+		paintValue.current = !selected.has(id) // start state decides paint vs erase
+		setSel(id, paintValue.current)
+	}
+	function onItemPointerEnter(id) {
+		if (painting.current) setSel(id, paintValue.current)
+	}
+	function toggleSelectMode() {
+		setSelectMode(m => {
+			if (m) clearSelection() // leaving select mode → drop selection
+			return !m
+		})
+	}
 
 	function onFileDragStart(e, id) {
 		// If the dragged file is part of the selection, move all selected; else just it.
@@ -910,7 +939,15 @@ export default function DriveBrowser() {
 						<option value="size:desc">Lớn nhất</option>
 						<option value="size:asc">Nhỏ nhất</option>
 					</select>
-					<div className="ml-auto flex overflow-hidden rounded-md border border-zinc-700">
+					<Button
+						variant={selectMode ? 'default' : 'outline'}
+						size="sm"
+						className="ml-auto"
+						onClick={toggleSelectMode}
+					>
+						{selectMode ? 'Xong' : 'Chọn'}
+					</Button>
+					<div className="flex overflow-hidden rounded-md border border-zinc-700">
 						<button
 							type="button"
 							onClick={() => setView('grid')}
@@ -1017,27 +1054,32 @@ export default function DriveBrowser() {
 							{visibleFiles.map(file => (
 								<div
 									key={file.id}
-									draggable
+									draggable={!selectMode}
 									onDragStart={e => onFileDragStart(e, file.id)}
-									className={`relative rounded-lg border bg-zinc-900 p-3 hover:border-zinc-600 ${
+									onPointerDown={() => onItemPointerDown(file.id)}
+									onPointerEnter={() => onItemPointerEnter(file.id)}
+									className={`relative select-none rounded-lg border bg-zinc-900 p-3 hover:border-zinc-600 ${
 										selected.has(file.id)
 											? 'border-blue-500 ring-1 ring-blue-500'
 											: 'border-zinc-800'
 									}`}
 								>
-									<input
-										type="checkbox"
-										checked={selected.has(file.id)}
-										onChange={() => toggleSelect(file.id)}
-										onClick={e => e.stopPropagation()}
-										className="absolute left-2 top-2 z-10 h-4 w-4 cursor-pointer accent-blue-500"
-									/>
+									{selectMode && (
+										<input
+											type="checkbox"
+											readOnly
+											checked={selected.has(file.id)}
+											className="pointer-events-none absolute left-2 top-2 z-10 h-4 w-4 accent-blue-500"
+										/>
+									)}
 									<div className="absolute right-1 top-1 z-10">
 										<KebabMenu items={fileMenu(file)} />
 									</div>
 									<button
 										type="button"
-										onClick={() => setPreview(file)}
+										onClick={() => {
+											if (!selectMode) setPreview(file)
+										}}
 										className="block w-full text-left"
 									>
 										{file.mime?.startsWith('image/') ? (
@@ -1069,20 +1111,24 @@ export default function DriveBrowser() {
 							<table className="w-full text-sm">
 								<thead className="text-left text-xs text-zinc-500">
 									<tr className="border-b border-zinc-800">
-										<th className="w-8 py-2">
-											<input
-												type="checkbox"
-												aria-label="Chọn tất cả file"
-												checked={
-													shownFiles.length > 0 &&
-													selected.size === shownFiles.length
-												}
-												onChange={e =>
-													e.target.checked ? selectAllFiles() : clearSelection()
-												}
-												className="h-4 w-4 cursor-pointer accent-blue-500"
-											/>
-										</th>
+										{selectMode && (
+											<th className="w-8 py-2">
+												<input
+													type="checkbox"
+													aria-label="Chọn tất cả file"
+													checked={
+														shownFiles.length > 0 &&
+														selected.size === shownFiles.length
+													}
+													onChange={e =>
+														e.target.checked
+															? selectAllFiles()
+															: clearSelection()
+													}
+													className="h-4 w-4 cursor-pointer accent-blue-500"
+												/>
+											</th>
+										)}
 										<th className="py-2 pr-3 font-medium">Tên</th>
 										<th className="py-2 pr-3 font-medium">Loại</th>
 										<th className="py-2 pr-3 font-medium">Kích thước</th>
@@ -1101,7 +1147,7 @@ export default function DriveBrowser() {
 												dragOverId === folder.id ? 'ring-1 ring-blue-500' : ''
 											}`}
 										>
-											<td className="py-2" />
+											{selectMode && <td className="py-2" />}
 											<td className="py-2 pr-3">
 												<button
 													type="button"
@@ -1124,24 +1170,30 @@ export default function DriveBrowser() {
 									{visibleFiles.map(file => (
 										<tr
 											key={file.id}
-											draggable
+											draggable={!selectMode}
 											onDragStart={e => onFileDragStart(e, file.id)}
-											className={`border-b border-zinc-900 hover:bg-zinc-900 ${
+											onPointerDown={() => onItemPointerDown(file.id)}
+											onPointerEnter={() => onItemPointerEnter(file.id)}
+											className={`select-none border-b border-zinc-900 hover:bg-zinc-900 ${
 												selected.has(file.id) ? 'bg-blue-950/30' : ''
 											}`}
 										>
-											<td className="py-2">
-												<input
-													type="checkbox"
-													checked={selected.has(file.id)}
-													onChange={() => toggleSelect(file.id)}
-													className="h-4 w-4 cursor-pointer accent-blue-500"
-												/>
-											</td>
+											{selectMode && (
+												<td className="py-2">
+													<input
+														type="checkbox"
+														readOnly
+														checked={selected.has(file.id)}
+														className="pointer-events-none h-4 w-4 accent-blue-500"
+													/>
+												</td>
+											)}
 											<td className="py-2 pr-3">
 												<button
 													type="button"
-													onClick={() => setPreview(file)}
+													onClick={() => {
+														if (!selectMode) setPreview(file)
+													}}
 													className="flex items-center gap-2 text-left"
 												>
 													<span>
