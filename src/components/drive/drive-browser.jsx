@@ -30,6 +30,7 @@ import {
 	ensureFolder,
 	renameFolder,
 	deleteFolder,
+	folderStats,
 	createFileUpload,
 	confirmFile,
 	renameFile,
@@ -213,6 +214,34 @@ export default function DriveBrowser() {
 		window.open(url, '_blank', 'noopener')
 	}
 
+	// True if `ancestorId` is `nodeId` or one of its ancestors (uses the loaded tree).
+	function isAncestorOf(ancestorId, nodeId) {
+		let cur = nodeId
+		while (cur) {
+			if (cur === ancestorId) return true
+			cur = byId.get(cur)?.parentId ?? null
+		}
+		return false
+	}
+
+	// Open the folder-delete dialog, then fill in recursive counts.
+	async function askDeleteFolder(folder) {
+		setDeleteTarget({
+			type: 'folder',
+			id: folder.id,
+			name: folder.name,
+			stats: null
+		})
+		try {
+			const stats = await folderStats({ id: folder.id })
+			setDeleteTarget(t => (t && t.id === folder.id ? { ...t, stats } : t))
+		} catch {
+			setDeleteTarget(t =>
+				t && t.id === folder.id ? { ...t, stats: { files: 0, folders: 0 } } : t
+			)
+		}
+	}
+
 	function folderMenu(folder) {
 		return [
 			{ label: 'Mở', onClick: () => setActive(folder.id) },
@@ -230,12 +259,7 @@ export default function DriveBrowser() {
 						value: folder.name
 					})
 			},
-			{
-				label: 'Xoá',
-				danger: true,
-				onClick: () =>
-					setDeleteTarget({ type: 'folder', id: folder.id, name: folder.name })
-			}
+			{ label: 'Xoá', danger: true, onClick: () => askDeleteFolder(folder) }
 		]
 	}
 
@@ -683,10 +707,10 @@ export default function DriveBrowser() {
 						: await deleteFile({ id: deleteTarget.id })
 			if (res?.error) throw new Error(res.error)
 			if (deleteTarget.type === 'files') clearSelection()
-			// If the deleted folder was active (or an ancestor), fall back to root.
+			// If the active folder was inside the deleted subtree, fall back to root.
 			if (
 				deleteTarget.type === 'folder' &&
-				(deleteTarget.id === activeId || !byId.has(activeId))
+				isAncestorOf(deleteTarget.id, activeId)
 			) {
 				setActive(null)
 			}
@@ -1244,19 +1268,43 @@ export default function DriveBrowser() {
 				<AlertDialogContent>
 					<AlertDialogHeader>
 						<AlertDialogTitle>Xoá “{deleteTarget?.name}”?</AlertDialogTitle>
-						<AlertDialogDescription>
-							{deleteTarget?.type === 'folder'
-								? 'Chỉ xoá được thư mục rỗng. Nếu còn file/thư mục con bên trong, hãy xoá hết trước.'
-								: deleteTarget?.type === 'files'
-									? `${deleteTarget.ids?.length || 0} file sẽ bị xoá khỏi R2. Không hoàn tác được.`
-									: 'File sẽ bị xoá khỏi R2 và không hoàn tác được.'}
+						<AlertDialogDescription asChild>
+							{deleteTarget?.type === 'folder' ? (
+								deleteTarget.stats == null ? (
+									<span className="flex items-center gap-2">
+										<Loader2 className="h-4 w-4 animate-spin" /> Đang kiểm tra nội
+										dung…
+									</span>
+								) : deleteTarget.stats.files === 0 &&
+								  deleteTarget.stats.folders === 0 ? (
+									<span>Thư mục rỗng. Xoá luôn nhé.</span>
+								) : (
+									<span>
+										Thư mục chứa <b>{deleteTarget.stats.files} file</b>
+										{deleteTarget.stats.folders > 0 &&
+											` và ${deleteTarget.stats.folders} thư mục con`}
+										. Xoá sẽ xoá <b>toàn bộ</b> (cả file trong thư mục con, cả trên
+										R2). Không hoàn tác được.
+									</span>
+								)
+							) : deleteTarget?.type === 'files' ? (
+								<span>
+									{deleteTarget.ids?.length || 0} file sẽ bị xoá khỏi R2. Không
+									hoàn tác được.
+								</span>
+							) : (
+								<span>File sẽ bị xoá khỏi R2 và không hoàn tác được.</span>
+							)}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
 						<AlertDialogCancel disabled={busy}>Huỷ</AlertDialogCancel>
 						<AlertDialogAction
 							onClick={confirmDelete}
-							disabled={busy}
+							disabled={
+								busy ||
+								(deleteTarget?.type === 'folder' && deleteTarget.stats == null)
+							}
 							className="bg-red-600 hover:bg-red-700"
 						>
 							Xoá

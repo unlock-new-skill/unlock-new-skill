@@ -122,21 +122,47 @@ export async function ensureFolder({ name, parentId = null }) {
 	return prisma.folder.create({ data: { name: clean, parentId } })
 }
 
+/** Recursively count files + subfolders under a folder (for the delete preview). */
+export async function folderStats({ id }) {
+	await requireAdmin()
+	let files = 0
+	let folders = 0
+	let frontier = [id]
+	while (frontier.length) {
+		files += await prisma.fileObject.count({
+			where: { folderId: { in: frontier } }
+		})
+		const children = await prisma.folder.findMany({
+			where: { parentId: { in: frontier } },
+			select: { id: true }
+		})
+		folders += children.length
+		frontier = children.map(c => c.id)
+	}
+	return { files, folders }
+}
+
 /**
- * Delete a folder — only when empty. Blocks if it still holds files or
- * subfolders (user must clear contents first). Avoids accidental mass deletes.
+ * Delete a folder and its whole subtree: purge every descendant file from R2,
+ * then delete the folder (DB cascade removes descendant rows).
  */
 export async function deleteFolder({ id }) {
 	await requireAdmin()
-	const [fileCount, subCount] = await Promise.all([
-		prisma.fileObject.count({ where: { folderId: id } }),
-		prisma.folder.count({ where: { parentId: id } })
-	])
-	if (fileCount > 0 || subCount > 0) {
-		return {
-			error: 'Thư mục còn nội dung — xoá hết file và thư mục con bên trong trước.'
-		}
+	const keys = []
+	let frontier = [id]
+	while (frontier.length) {
+		const files = await prisma.fileObject.findMany({
+			where: { folderId: { in: frontier } },
+			select: { key: true }
+		})
+		keys.push(...files.map(f => f.key))
+		const children = await prisma.folder.findMany({
+			where: { parentId: { in: frontier } },
+			select: { id: true }
+		})
+		frontier = children.map(c => c.id)
 	}
+	await deleteObjects(keys, BUCKET)
 	await prisma.folder.delete({ where: { id } })
 	return { ok: true }
 }
