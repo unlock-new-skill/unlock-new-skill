@@ -26,6 +26,7 @@ import {
 	listFolder,
 	listAllFolders,
 	createFolder,
+	ensureFolder,
 	renameFolder,
 	deleteFolder,
 	createFileUpload,
@@ -510,7 +511,8 @@ export default function DriveBrowser() {
 			const key = segs.join('/')
 			if (cache.has(key)) return cache.get(key)
 			const parent = await ensureDir(segs.slice(0, -1))
-			const folder = await createFolder({
+			// Reuse an existing same-name folder instead of erroring on duplicates.
+			const folder = await ensureFolder({
 				name: segs[segs.length - 1],
 				parentId: parent
 			})

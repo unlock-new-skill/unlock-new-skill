@@ -78,10 +78,24 @@ export async function folderPath({ id }) {
 	return chain
 }
 
+/** Find a sibling folder with the same name (case-insensitive), excluding `exceptId`. */
+async function findSiblingFolder(parentId, name, exceptId) {
+	return prisma.folder.findFirst({
+		where: {
+			parentId,
+			name: { equals: name, mode: 'insensitive' },
+			...(exceptId ? { id: { not: exceptId } } : {})
+		},
+		select: { id: true }
+	})
+}
+
 export async function createFolder({ name, parentId = null }) {
 	await requireAdmin()
 	const clean = String(name || '').trim()
 	if (!clean) return { error: 'Tên thư mục trống' }
+	if (await findSiblingFolder(parentId, clean))
+		return { error: 'Đã có thư mục cùng tên ở đây' }
 	return prisma.folder.create({ data: { name: clean, parentId } })
 }
 
@@ -89,7 +103,23 @@ export async function renameFolder({ id, name }) {
 	await requireAdmin()
 	const clean = String(name || '').trim()
 	if (!clean) return { error: 'Tên thư mục trống' }
+	const cur = await prisma.folder.findUnique({
+		where: { id },
+		select: { parentId: true }
+	})
+	if (!cur) return { error: 'Không tìm thấy thư mục' }
+	if (await findSiblingFolder(cur.parentId, clean, id))
+		return { error: 'Đã có thư mục cùng tên ở đây' }
 	return prisma.folder.update({ where: { id }, data: { name: clean } })
+}
+
+/** Get-or-create a folder by name under a parent (for dropping OS folder trees). */
+export async function ensureFolder({ name, parentId = null }) {
+	await requireAdmin()
+	const clean = String(name || '').trim() || 'folder'
+	const existing = await findSiblingFolder(parentId, clean)
+	if (existing) return existing
+	return prisma.folder.create({ data: { name: clean, parentId } })
 }
 
 /**
