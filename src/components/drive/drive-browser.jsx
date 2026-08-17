@@ -42,7 +42,13 @@ import KebabMenu from './kebab-menu'
 // Files above this use multipart (parallel parts); below use a single PUT.
 const MULTIPART_THRESHOLD = 100 * 1024 * 1024 // 100 MB
 const PART_SIZE = 64 * 1024 * 1024 // 64 MB (S3 min part = 5 MB, except last)
-const PART_CONCURRENCY = 4 // parallel part uploads
+const PART_CONCURRENCY = 4 // parallel part uploads within one big file
+
+// Batch upload queue: process files one at a time (avoid blasting 500 uploads
+// at once → perf/rate issues), each with retry. Bump for parallel batches.
+const UPLOAD_CONCURRENCY = 1
+const MAX_RETRIES = 3
+const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 /** Human-readable size. */
 function fmtSize(bytes) {
@@ -64,8 +70,11 @@ export default function DriveBrowser() {
 	const [data, setData] = useState({ folders: [], files: [] }) // current level
 	const [loading, setLoading] = useState(false)
 	const [busy, setBusy] = useState(false)
-	const [progress, setProgress] = useState(null) // { done, total } bytes
 	const [preview, setPreview] = useState(null)
+	// Upload queue entries: { id, name, size, status: pending|uploading|done|error, error }
+	const [uploads, setUploads] = useState([])
+	const uploadsRef = useRef([]) // mirror for the runner (holds file + folderId)
+	const runningRef = useRef(false)
 	const [nameDialog, setNameDialog] = useState(null) // { mode, id, value }
 	const [deleteTarget, setDeleteTarget] = useState(null) // { type, id, name }
 	const [view, setView] = useState('grid') // 'grid' | 'list'
@@ -243,16 +252,12 @@ export default function DriveBrowser() {
 		]
 	}
 
-	// --- uploads ---
-	const addBytes = useCallback(n => {
-		setProgress(p => (p ? { ...p, done: p.done + n } : p))
-	}, [])
-
-	async function uploadSingle(file) {
+	// --- uploads: one file, single PUT or multipart depending on size ---
+	async function uploadSingle(file, folderId) {
 		const res = await createFileUpload({
 			name: file.name,
 			type: file.type,
-			folderId: parentId
+			folderId
 		})
 		if (res.error) throw new Error(res.error)
 		const put = await fetch(res.uploadUrl, {
@@ -261,22 +266,21 @@ export default function DriveBrowser() {
 			headers: { 'Content-Type': file.type || 'application/octet-stream' }
 		})
 		if (!put.ok) throw new Error(`Upload R2 thất bại (${put.status})`)
-		addBytes(file.size)
 		const saved = await confirmFile({
 			key: res.key,
 			name: file.name,
 			mime: file.type,
 			size: file.size,
-			folderId: parentId
+			folderId
 		})
 		if (saved.error) throw new Error(saved.error)
 	}
 
-	async function uploadMultipart(file) {
+	async function uploadMultipart(file, folderId) {
 		const start = await startMultipart({
 			name: file.name,
 			type: file.type,
-			folderId: parentId
+			folderId
 		})
 		if (start.error) throw new Error(start.error)
 		const partCount = Math.ceil(file.size / PART_SIZE)
@@ -300,7 +304,6 @@ export default function DriveBrowser() {
 					if (!etag)
 						throw new Error('Thiếu ETag — kiểm CORS ExposeHeaders: ["ETag"]')
 					parts[i] = { PartNumber: i + 1, ETag: etag }
-					addBytes(chunk.size)
 				}
 			}
 			await Promise.all(
@@ -314,7 +317,7 @@ export default function DriveBrowser() {
 				name: file.name,
 				mime: file.type,
 				size: file.size,
-				folderId: parentId
+				folderId
 			})
 			if (saved.error) throw new Error(saved.error)
 		} catch (err) {
@@ -325,31 +328,120 @@ export default function DriveBrowser() {
 		}
 	}
 
-	async function uploadFiles(fileList) {
-		const files = Array.from(fileList || [])
-		if (!files.length || busy) return
-		setBusy(true)
-		setProgress({ done: 0, total: files.reduce((s, f) => s + f.size, 0) })
-		try {
-			for (const file of files) {
-				if (file.size > MULTIPART_THRESHOLD) await uploadMultipart(file)
-				else await uploadSingle(file)
+	// One file, with retry + small backoff.
+	async function uploadWithRetry(entry) {
+		let lastErr
+		for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+			try {
+				if (entry.file.size > MULTIPART_THRESHOLD)
+					await uploadMultipart(entry.file, entry.folderId)
+				else await uploadSingle(entry.file, entry.folderId)
+				return
+			} catch (err) {
+				lastErr = err
+				if (attempt < MAX_RETRIES) await sleep(600 * attempt)
 			}
-			toast.success(`Đã upload ${files.length} file`)
-			await loadLevel()
-		} catch (err) {
-			toast.error(err.message)
-		} finally {
-			setBusy(false)
-			setProgress(null)
 		}
+		throw lastErr
+	}
+
+	const patchUpload = (id, patch) =>
+		setUploads(prev => prev.map(u => (u.id === id ? { ...u, ...patch } : u)))
+
+	// Concurrency-limited runner over the pending queue in uploadsRef.
+	async function runQueue() {
+		if (runningRef.current) return
+		runningRef.current = true
+		setBusy(true)
+
+		async function worker() {
+			for (;;) {
+				const entry = uploadsRef.current.find(u => u.status === 'pending')
+				if (!entry) return
+				entry.status = 'uploading' // mark in ref so other workers skip it
+				patchUpload(entry.id, { status: 'uploading', error: null })
+				try {
+					await uploadWithRetry(entry)
+					entry.status = 'done'
+					patchUpload(entry.id, { status: 'done' })
+				} catch (err) {
+					entry.status = 'error'
+					patchUpload(entry.id, { status: 'error', error: err.message })
+				}
+			}
+		}
+
+		await Promise.all(
+			Array.from({ length: UPLOAD_CONCURRENCY }, worker)
+		)
+
+		runningRef.current = false
+		setBusy(false)
+		await loadLevel()
+
+		const failed = uploadsRef.current.filter(u => u.status === 'error').length
+		const done = uploadsRef.current.filter(u => u.status === 'done').length
+		if (failed === 0) toast.success(`Đã upload ${done} file`)
+		else toast.error(`${done} thành công, ${failed} lỗi — xem bảng tổng kết`)
+	}
+
+	// Add files to the queue (captures the current folder per entry) and run.
+	function enqueue(fileList) {
+		const files = Array.from(fileList || [])
+		if (!files.length) return
+		const entries = files.map(f => ({
+			id: crypto.randomUUID(),
+			file: f,
+			folderId: parentId,
+			name: f.name,
+			size: f.size,
+			status: 'pending',
+			error: null
+		}))
+		uploadsRef.current = [...uploadsRef.current, ...entries]
+		setUploads(uploadsRef.current)
+		runQueue()
+	}
+
+	function retryUpload(id) {
+		const entry = uploadsRef.current.find(u => u.id === id)
+		if (!entry || entry.status === 'uploading') return
+		entry.status = 'pending'
+		entry.error = null
+		patchUpload(id, { status: 'pending', error: null })
+		runQueue()
+	}
+
+	function retryAllFailed() {
+		let any = false
+		for (const u of uploadsRef.current) {
+			if (u.status === 'error') {
+				u.status = 'pending'
+				u.error = null
+				any = true
+			}
+		}
+		if (any) {
+			setUploads([...uploadsRef.current])
+			runQueue()
+		}
+	}
+
+	function clearUploads() {
+		if (runningRef.current) return
+		uploadsRef.current = []
+		setUploads([])
 	}
 
 	function onDrop(e) {
 		e.preventDefault()
 		e.stopPropagation()
-		uploadFiles(e.dataTransfer.files)
+		enqueue(e.dataTransfer.files)
 	}
+
+	const upDone = uploads.filter(u => u.status === 'done').length
+	const upError = uploads.filter(u => u.status === 'error').length
+	const upActive = uploads.length > 0 && upDone + upError < uploads.length
 
 	// --- folder/file mutations ---
 	async function submitName() {
@@ -478,18 +570,13 @@ export default function DriveBrowser() {
 							+ Thư mục
 						</Button>
 						<label className="cursor-pointer rounded bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 hover:bg-white">
-							{busy
-								? progress && progress.total
-									? `Đang tải ${Math.round((progress.done / progress.total) * 100)}%`
-									: 'Đang tải...'
-								: '↑ Upload'}
+							{upActive ? `Đang tải ${upDone}/${uploads.length}` : '↑ Upload'}
 							<input
 								type="file"
 								multiple
 								hidden
-								disabled={busy}
 								onChange={e => {
-									uploadFiles(e.target.files)
+									enqueue(e.target.files)
 									e.target.value = ''
 								}}
 							/>
@@ -688,6 +775,86 @@ export default function DriveBrowser() {
 			</div>
 
 			<FilePreview file={preview} onClose={() => setPreview(null)} />
+
+			{/* Upload overview panel */}
+			{uploads.length > 0 && (
+				<div className="fixed bottom-4 right-4 z-30 w-80 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl">
+					<div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-2 text-sm">
+						<span className="font-medium">
+							{upActive
+								? `Đang tải ${upDone}/${uploads.length}`
+								: `Xong: ${upDone} · Lỗi: ${upError}`}
+						</span>
+						<div className="ml-auto flex items-center gap-2">
+							{!upActive && upError > 0 && (
+								<button
+									type="button"
+									onClick={retryAllFailed}
+									className="text-xs text-blue-400 hover:text-blue-300"
+								>
+									Thử lại lỗi
+								</button>
+							)}
+							{!upActive && (
+								<button
+									type="button"
+									onClick={clearUploads}
+									aria-label="Đóng"
+									className="text-zinc-400 hover:text-zinc-100"
+								>
+									✕
+								</button>
+							)}
+						</div>
+					</div>
+					{/* overall progress bar */}
+					<div className="h-1 w-full bg-zinc-800">
+						<div
+							className="h-full bg-blue-500 transition-all"
+							style={{
+								width: `${uploads.length ? ((upDone + upError) / uploads.length) * 100 : 0}%`
+							}}
+						/>
+					</div>
+					<ul className="max-h-64 overflow-auto py-1 text-sm">
+						{uploads.map(u => (
+							<li
+								key={u.id}
+								className="flex items-center gap-2 px-3 py-1"
+								title={u.error || ''}
+							>
+								<span className="w-4 shrink-0 text-center">
+									{u.status === 'done'
+										? '✅'
+										: u.status === 'error'
+											? '❌'
+											: u.status === 'uploading'
+												? '⏫'
+												: '⏳'}
+								</span>
+								<span className="flex-1 truncate">{u.name}</span>
+								<span className="shrink-0 text-xs text-zinc-500">
+									{fmtSize(u.size)}
+								</span>
+								{u.status === 'error' && (
+									<button
+										type="button"
+										onClick={() => retryUpload(u.id)}
+										className="shrink-0 text-xs text-blue-400 hover:text-blue-300"
+									>
+										Thử lại
+									</button>
+								)}
+							</li>
+						))}
+					</ul>
+					{upError > 0 && !upActive && (
+						<div className="border-t border-zinc-800 px-3 py-2 text-xs text-red-400">
+							{upError} file lỗi. Hover để xem lý do, bấm “Thử lại”.
+						</div>
+					)}
+				</div>
+			)}
 
 			{/* Create / rename name dialog */}
 			<Dialog
