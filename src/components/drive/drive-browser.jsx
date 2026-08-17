@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
-import { zipSync } from 'fflate'
+import { zip } from 'fflate'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -630,7 +630,7 @@ export default function DriveBrowser() {
 	// Zip a dropped folder's contents (source/text folders) into one .zip and
 	// enqueue it as a single upload into the current folder.
 	async function enqueueZipFolder(folderName, list) {
-		setPreparing(`Đang nén ${folderName}… (${list.length} file)`)
+		setPreparing(`Đang đọc ${folderName}… (${list.length} file)`)
 		const files = {}
 		for (const { file, dir } of list) {
 			// dir[0] is the dropped folder's name; keep the relative path inside the zip.
@@ -638,8 +638,13 @@ export default function DriveBrowser() {
 				await file.arrayBuffer()
 			)
 		}
-		await sleep(0) // let the "Đang nén…" banner paint before the sync zip blocks
-		const zipped = zipSync(files, { level: 6 })
+		setPreparing(`Đang nén ${folderName}… (${list.length} file)`)
+		// Async, worker-threaded zip → does NOT block the UI (zipSync froze the tab).
+		const zipped = await new Promise((resolve, reject) => {
+			zip(files, { level: 6 }, (err, data) =>
+				err ? reject(err) : resolve(data)
+			)
+		})
 		const zipFile = new File([zipped], `${folderName}.zip`, {
 			type: 'application/zip'
 		})
