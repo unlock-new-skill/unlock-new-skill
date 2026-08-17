@@ -2,7 +2,11 @@ import {
 	S3Client,
 	PutObjectCommand,
 	DeleteObjectCommand,
-	DeleteObjectsCommand
+	DeleteObjectsCommand,
+	CreateMultipartUploadCommand,
+	UploadPartCommand,
+	CompleteMultipartUploadCommand,
+	AbortMultipartUploadCommand
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
@@ -112,5 +116,67 @@ export async function deleteObjects(keys, bucketName = 'portfolio') {
 		} catch (err) {
 			console.error('R2 deleteObjects failed:', err?.message)
 		}
+	}
+}
+
+// --- Multipart upload (large files: >5GB single-PUT limit / parallel parts) ---
+
+/** Begin a multipart upload; returns the S3 UploadId. */
+export async function createMultipart(key, contentType, bucketName = 'portfolio') {
+	const res = await client().send(
+		new CreateMultipartUploadCommand({
+			Bucket: resolve(bucketName).bucket,
+			Key: key,
+			ContentType: contentType
+		})
+	)
+	return res.UploadId
+}
+
+/** Presigned PUT URL for one part (browser uploads the chunk directly). */
+export async function presignUploadPart(
+	key,
+	uploadId,
+	partNumber,
+	bucketName = 'portfolio'
+) {
+	const cmd = new UploadPartCommand({
+		Bucket: resolve(bucketName).bucket,
+		Key: key,
+		UploadId: uploadId,
+		PartNumber: partNumber
+	})
+	return getSignedUrl(client(), cmd, { expiresIn: 3600 })
+}
+
+/** Finalize a multipart upload. `parts` = [{ PartNumber, ETag }] (ascending). */
+export async function completeMultipart(
+	key,
+	uploadId,
+	parts,
+	bucketName = 'portfolio'
+) {
+	await client().send(
+		new CompleteMultipartUploadCommand({
+			Bucket: resolve(bucketName).bucket,
+			Key: key,
+			UploadId: uploadId,
+			MultipartUpload: { Parts: parts }
+		})
+	)
+}
+
+/** Abort a multipart upload and discard already-uploaded parts. */
+export async function abortMultipart(key, uploadId, bucketName = 'portfolio') {
+	try {
+		await client().send(
+			new AbortMultipartUploadCommand({
+				Bucket: resolve(bucketName).bucket,
+				Key: key,
+				UploadId: uploadId
+			})
+		)
+	} catch (err) {
+		console.error('R2 abortMultipart failed:', err?.message)
 	}
 }

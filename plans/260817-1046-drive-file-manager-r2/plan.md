@@ -43,7 +43,7 @@ Stack (unchanged): Next 14 App Router, React 18, Prisma→Postgres, jose JWT, Ta
 | 2 | [Drive Server Actions](./phase-02-drive-server-actions.md) | Completed |
 | 3 | [UI Browser + Preview](./phase-03-ui-browser-preview.md) | Completed |
 | 4 | [Wire + Middleware](./phase-04-wire-middleware.md) | Completed |
-| 5 | [Multipart Upload (large files)](./phase-05-multipart-upload.md) | Pending (optional follow-up) |
+| 5 | [Multipart Upload (large files)](./phase-05-multipart-upload.md) | Completed |
 
 ## Dependencies
 

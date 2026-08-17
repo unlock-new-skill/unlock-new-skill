@@ -2,13 +2,13 @@
 
 ## Context links
 - Parent: [plan.md](./plan.md) · Depends: Phase 01-04 (shipped)
-- Status: **Pending / optional enhancement** (not required for core acceptance)
+- Status: **Completed** (implemented 2026-08-17)
 - Touches: `src/lib/r2.js`, `src/lib/drive-actions.js`, `src/components/drive/drive-browser.jsx`
 
 ## Overview
 - Date: 2026-08-17 · Priority: P3
 - Description: Thay single presigned PUT bằng S3 multipart để upload file nặng nhanh + vượt giới hạn 5GB/PUT + retry theo part. Optional progress %.
-- Implementation status: Pending · Review status: Pending
+- Implementation status: Completed · Review status: Pending (manual test blocked on domain/CORS)
 
 ## Problem (why)
 Single PUT hiện tại:

@@ -8,7 +8,11 @@ import {
 	publicUrl,
 	deleteObject,
 	deleteObjects,
-	isPersonalR2Configured
+	isPersonalR2Configured,
+	createMultipart,
+	presignUploadPart,
+	completeMultipart,
+	abortMultipart
 } from './r2'
 
 const BUCKET = 'personal'
@@ -117,6 +121,70 @@ export async function confirmFile({ key, name, mime, size, folderId = null }) {
 		}
 	})
 	return withUrl(file)
+}
+
+// --- Multipart upload (large files) ---
+
+const MAX_PARTS = 10000 // S3 hard limit
+
+/** Begin a multipart upload; returns key + uploadId for the browser to drive. */
+export async function startMultipart({ name, type, folderId = null }) {
+	await requireAdmin()
+	if (!isPersonalR2Configured()) {
+		return { error: 'R2 personal chưa cấu hình (thiếu env)' }
+	}
+	const key = `drive/${crypto.randomUUID()}-${safeName(name)}`
+	const uploadId = await createMultipart(
+		key,
+		type || 'application/octet-stream',
+		BUCKET
+	)
+	return { key, uploadId, publicUrl: publicUrl(key, BUCKET) }
+}
+
+/** Presign every part URL in one round-trip. `partCount` = ceil(size/partSize). */
+export async function signParts({ key, uploadId, partCount }) {
+	await requireAdmin()
+	const n = Number(partCount) || 0
+	if (n < 1 || n > MAX_PARTS) return { error: 'Số part không hợp lệ' }
+	const urls = await Promise.all(
+		Array.from({ length: n }, (_, i) =>
+			presignUploadPart(key, uploadId, i + 1, BUCKET)
+		)
+	)
+	return { urls } // urls[i] → PartNumber i+1
+}
+
+/** Finalize the multipart upload and persist the file row. */
+export async function finishMultipart({
+	key,
+	uploadId,
+	parts,
+	name,
+	mime,
+	size,
+	folderId = null
+}) {
+	await requireAdmin()
+	if (!key || !uploadId || !parts?.length) return { error: 'Thiếu dữ liệu' }
+	await completeMultipart(key, uploadId, parts, BUCKET)
+	const file = await prisma.fileObject.create({
+		data: {
+			key,
+			name: String(name || 'file'),
+			mime: String(mime || 'application/octet-stream'),
+			size: Number(size) || 0,
+			folderId
+		}
+	})
+	return withUrl(file)
+}
+
+/** Abort a multipart upload (cleanup on failure). */
+export async function abortUpload({ key, uploadId }) {
+	await requireAdmin()
+	await abortMultipart(key, uploadId, BUCKET)
+	return { ok: true }
 }
 
 export async function renameFile({ id, name }) {

@@ -29,11 +29,20 @@ import {
 	createFileUpload,
 	confirmFile,
 	renameFile,
-	deleteFile
+	deleteFile,
+	startMultipart,
+	signParts,
+	finishMultipart,
+	abortUpload
 } from '@/lib/drive-actions'
 import FilePreview from './file-preview'
 
 const ROOT = { id: null, name: 'Drive' }
+
+// Files above this use multipart (parallel parts); below use a single PUT.
+const MULTIPART_THRESHOLD = 100 * 1024 * 1024 // 100 MB
+const PART_SIZE = 64 * 1024 * 1024 // 64 MB (S3 min part = 5 MB, except last)
+const PART_CONCURRENCY = 4 // parallel part uploads
 
 /** Human-readable size. */
 function fmtSize(bytes) {
@@ -54,6 +63,7 @@ export default function DriveBrowser() {
 	const [data, setData] = useState({ folders: [], files: [] })
 	const [loading, setLoading] = useState(false)
 	const [busy, setBusy] = useState(false)
+	const [progress, setProgress] = useState(null) // { done, total } bytes
 	const [preview, setPreview] = useState(null)
 	// { mode:'new-folder'|'rename-folder'|'rename-file', id, value }
 	const [nameDialog, setNameDialog] = useState(null)
@@ -86,34 +96,100 @@ export default function DriveBrowser() {
 		setStack(s => s.slice(0, index + 1))
 	}
 
+	const addBytes = useCallback(n => {
+		setProgress(p => (p ? { ...p, done: p.done + n } : p))
+	}, [])
+
+	// Single PUT (small files): one request for the whole body.
+	async function uploadSingle(file) {
+		const res = await createFileUpload({
+			name: file.name,
+			type: file.type,
+			folderId: parentId
+		})
+		if (res.error) throw new Error(res.error)
+		const put = await fetch(res.uploadUrl, {
+			method: 'PUT',
+			body: file,
+			headers: { 'Content-Type': file.type || 'application/octet-stream' }
+		})
+		if (!put.ok) throw new Error(`Upload R2 thất bại (${put.status})`)
+		addBytes(file.size)
+		const saved = await confirmFile({
+			key: res.key,
+			name: file.name,
+			mime: file.type,
+			size: file.size,
+			folderId: parentId
+		})
+		if (saved.error) throw new Error(saved.error)
+	}
+
+	// Multipart (large files): parallel part PUTs, ETag per part, then complete.
+	async function uploadMultipart(file) {
+		const start = await startMultipart({
+			name: file.name,
+			type: file.type,
+			folderId: parentId
+		})
+		if (start.error) throw new Error(start.error)
+		const partCount = Math.ceil(file.size / PART_SIZE)
+		try {
+			const sp = await signParts({
+				key: start.key,
+				uploadId: start.uploadId,
+				partCount
+			})
+			if (sp.error) throw new Error(sp.error)
+
+			// Worker pool: each worker grabs the next part index until exhausted.
+			const parts = new Array(partCount)
+			let next = 0
+			async function worker() {
+				while (next < partCount) {
+					const i = next++
+					const chunk = file.slice(i * PART_SIZE, (i + 1) * PART_SIZE)
+					const put = await fetch(sp.urls[i], { method: 'PUT', body: chunk })
+					if (!put.ok) throw new Error(`Part ${i + 1} lỗi (${put.status})`)
+					const etag = put.headers.get('ETag')
+					if (!etag)
+						throw new Error('Thiếu ETag — kiểm CORS ExposeHeaders: ["ETag"]')
+					parts[i] = { PartNumber: i + 1, ETag: etag }
+					addBytes(chunk.size)
+				}
+			}
+			await Promise.all(
+				Array.from({ length: Math.min(PART_CONCURRENCY, partCount) }, worker)
+			)
+
+			const saved = await finishMultipart({
+				key: start.key,
+				uploadId: start.uploadId,
+				parts,
+				name: file.name,
+				mime: file.type,
+				size: file.size,
+				folderId: parentId
+			})
+			if (saved.error) throw new Error(saved.error)
+		} catch (err) {
+			// Discard already-uploaded parts so they don't linger as garbage.
+			await abortUpload({ key: start.key, uploadId: start.uploadId }).catch(
+				() => {}
+			)
+			throw err
+		}
+	}
+
 	async function uploadFiles(fileList) {
 		const files = Array.from(fileList || [])
 		if (!files.length) return
 		setBusy(true)
+		setProgress({ done: 0, total: files.reduce((s, f) => s + f.size, 0) })
 		try {
 			for (const file of files) {
-				const res = await createFileUpload({
-					name: file.name,
-					type: file.type,
-					folderId: parentId
-				})
-				if (res.error) throw new Error(res.error)
-				const put = await fetch(res.uploadUrl, {
-					method: 'PUT',
-					body: file,
-					headers: {
-						'Content-Type': file.type || 'application/octet-stream'
-					}
-				})
-				if (!put.ok) throw new Error(`Upload R2 thất bại (${put.status})`)
-				const saved = await confirmFile({
-					key: res.key,
-					name: file.name,
-					mime: file.type,
-					size: file.size,
-					folderId: parentId
-				})
-				if (saved.error) throw new Error(saved.error)
+				if (file.size > MULTIPART_THRESHOLD) await uploadMultipart(file)
+				else await uploadSingle(file)
 			}
 			toast.success(`Đã upload ${files.length} file`)
 			await refresh()
@@ -121,6 +197,7 @@ export default function DriveBrowser() {
 			toast.error(err.message)
 		} finally {
 			setBusy(false)
+			setProgress(null)
 		}
 	}
 
@@ -202,7 +279,11 @@ export default function DriveBrowser() {
 						+ Thư mục
 					</Button>
 					<label className="cursor-pointer rounded bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 hover:bg-white">
-						{busy ? 'Đang tải...' : '↑ Upload'}
+						{busy
+							? progress && progress.total
+								? `Đang tải ${Math.round((progress.done / progress.total) * 100)}%`
+								: 'Đang tải...'
+							: '↑ Upload'}
 						<input
 							type="file"
 							multiple
