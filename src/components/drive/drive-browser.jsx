@@ -501,16 +501,25 @@ export default function DriveBrowser() {
 	function TreeNodes({ pid, depth }) {
 		return childrenOf(pid).map(f => (
 			<div key={f.id}>
-				<button
-					type="button"
-					onClick={() => setActive(f.id)}
-					style={{ paddingLeft: depth * 12 + 8 }}
-					className={`block w-full truncate rounded py-1 pr-2 text-left text-sm hover:bg-zinc-800 ${
-						activeId === f.id ? 'bg-zinc-800 text-white' : 'text-zinc-300'
+				<div
+					className={`group flex items-center rounded pr-1 hover:bg-zinc-800 ${
+						activeId === f.id ? 'bg-zinc-800' : ''
 					}`}
 				>
-					📁 {f.name}
-				</button>
+					<button
+						type="button"
+						onClick={() => setActive(f.id)}
+						style={{ paddingLeft: depth * 12 + 8 }}
+						className={`flex-1 truncate py-1 text-left text-sm ${
+							activeId === f.id ? 'text-white' : 'text-zinc-300'
+						}`}
+					>
+						📁 {f.name}
+					</button>
+					<div className="opacity-0 group-hover:opacity-100">
+						<KebabMenu items={folderMenu(f)} />
+					</div>
+				</div>
 				<TreeNodes pid={f.id} depth={depth + 1} />
 			</div>
 		))
