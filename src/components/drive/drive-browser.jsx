@@ -308,7 +308,8 @@ export default function DriveBrowser() {
 
 	async function moveTo(folderId, ids) {
 		const list = ids && ids.length ? ids : [...selected]
-		if (!list.length) return
+		if (!list.length || busy) return
+		setBusy(true)
 		try {
 			const res = await moveFiles({ ids: list, folderId })
 			if (res?.error) throw new Error(res.error)
@@ -318,6 +319,8 @@ export default function DriveBrowser() {
 			toast.success(`Đã chuyển ${list.length} file`)
 		} catch (err) {
 			toast.error(err.message)
+		} finally {
+			setBusy(false)
 		}
 	}
 
@@ -1235,7 +1238,7 @@ export default function DriveBrowser() {
 							Huỷ
 						</Button>
 						<Button onClick={submitName} disabled={busy}>
-							Lưu
+							{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Lưu'}
 						</Button>
 					</DialogFooter>
 				</DialogContent>
@@ -1245,11 +1248,19 @@ export default function DriveBrowser() {
 			<Dialog open={moveOpen} onOpenChange={o => !o && setMoveOpen(false)}>
 				<DialogContent>
 					<DialogHeader>
-						<DialogTitle>Chuyển {selected.size} file tới…</DialogTitle>
+						<DialogTitle className="flex items-center gap-2">
+							Chuyển {selected.size} file tới…
+							{busy && <Loader2 className="h-4 w-4 animate-spin" />}
+						</DialogTitle>
 					</DialogHeader>
-					<div className="max-h-72 overflow-auto rounded border border-zinc-800 p-1">
+					<div
+						className={`max-h-72 overflow-auto rounded border border-zinc-800 p-1 ${
+							busy ? 'pointer-events-none opacity-50' : ''
+						}`}
+					>
 						<button
 							type="button"
+							disabled={busy}
 							onClick={() => moveTo(null, [...selected])}
 							className="block w-full truncate rounded px-2 py-1 text-left text-sm font-medium text-zinc-200 hover:bg-zinc-800"
 						>
@@ -1307,7 +1318,7 @@ export default function DriveBrowser() {
 							}
 							className="bg-red-600 hover:bg-red-700"
 						>
-							Xoá
+							{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Xoá'}
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>
