@@ -26,7 +26,6 @@ import {
 	listFolder,
 	listAllFolders,
 	createFolder,
-	ensureFolder,
 	renameFolder,
 	deleteFolder,
 	folderStats,
@@ -80,7 +79,6 @@ export default function DriveBrowser() {
 	const [uploads, setUploads] = useState([])
 	const uploadsRef = useRef([]) // mirror for the runner (holds file + folderId)
 	const runningRef = useRef(false)
-	const [preparing, setPreparing] = useState('') // status while reading/zipping a dropped folder
 	const [nameDialog, setNameDialog] = useState(null) // { mode, id, value }
 	const [deleteTarget, setDeleteTarget] = useState(null) // { type, id, name }
 	const [view, setView] = useState('grid') // 'grid' | 'list'
@@ -552,77 +550,6 @@ export default function DriveBrowser() {
 		runQueue()
 	}
 
-	// Recursively read a dropped FileSystem entry → [{ file, dir: string[] }].
-	// dir = folder path segments the file should live under (relative to drop).
-	function readEntry(entry, pathSegs = []) {
-		return new Promise(resolve => {
-			if (entry.isFile) {
-				entry.file(
-					file => resolve([{ file, dir: pathSegs }]),
-					() => resolve([])
-				)
-			} else if (entry.isDirectory) {
-				const reader = entry.createReader()
-				const collected = []
-				const readBatch = () => {
-					reader.readEntries(
-						async batch => {
-							if (!batch.length) {
-								// readEntries returns [] when the directory is exhausted.
-								const nested = await Promise.all(
-									collected.map(e => readEntry(e, [...pathSegs, entry.name]))
-								)
-								resolve(nested.flat())
-							} else {
-								collected.push(...batch)
-								readBatch() // keep pulling (batches of ~100)
-							}
-						},
-						() => resolve([])
-					)
-				}
-				readBatch()
-			} else resolve([])
-		})
-	}
-
-	// Create the folder tree for dropped dirs, then enqueue each file into it.
-	async function enqueueWithPaths(list) {
-		if (!list.length) return
-		const cache = new Map() // dir-path → folderId ('' = current folder)
-		cache.set('', parentId)
-		async function ensureDir(segs) {
-			const key = segs.join('/')
-			if (cache.has(key)) return cache.get(key)
-			const parent = await ensureDir(segs.slice(0, -1))
-			// Reuse an existing same-name folder instead of erroring on duplicates.
-			const folder = await ensureFolder({
-				name: segs[segs.length - 1],
-				parentId: parent
-			})
-			if (folder?.error) throw new Error(folder.error)
-			cache.set(key, folder.id)
-			return folder.id
-		}
-		const entries = []
-		for (const { file, dir } of list) {
-			const folderId = dir.length ? await ensureDir(dir) : parentId
-			entries.push({
-				id: crypto.randomUUID(),
-				file,
-				folderId,
-				name: file.name,
-				size: file.size,
-				status: 'pending',
-				error: null
-			})
-		}
-		await reload() // show the newly created folders
-		uploadsRef.current = [...uploadsRef.current, ...entries]
-		setUploads(uploadsRef.current)
-		runQueue()
-	}
-
 	function retryUpload(id) {
 		const entry = uploadsRef.current.find(u => u.id === id)
 		if (!entry || entry.status === 'uploading') return
@@ -653,50 +580,29 @@ export default function DriveBrowser() {
 		setUploads([])
 	}
 
-	// Only accept a single flat folder level (no subfolders). Nested folders are
-	// rejected — the user should zip/rar them and upload the archive instead.
-	async function processDrop(entries) {
-		setPreparing('Đang đọc thư mục thả vào…')
-		try {
-			const individual = [] // [{ file, dir }]
-			for (const en of entries) {
-				if (en.isFile) {
-					const file = await new Promise((res, rej) => en.file(res, rej))
-					individual.push({ file, dir: [] })
-				} else if (en.isDirectory) {
-					setPreparing(`Đang đọc thư mục “${en.name}”…`)
-					const list = await readEntry(en, [])
-					if (!list.length) continue
-					if (list.some(x => x.dir.length > 1)) {
-						toast.error(
-							`“${en.name}” có thư mục con — chỉ nhận folder 1 cấp. Hãy tự nén .zip/.rar rồi upload.`
-						)
-						continue
-					}
-					individual.push(...list)
-				}
-			}
-			if (individual.length) await enqueueWithPaths(individual)
-		} finally {
-			setPreparing('')
-		}
-	}
-
+	// Files only — folders are rejected (user should zip/rar and upload the archive).
 	function onDrop(e) {
 		e.preventDefault()
 		e.stopPropagation()
 		// Internal file-move drops are handled by folder targets; ignore here.
 		if (e.dataTransfer.types.includes(MOVE_MIME)) return
-		// Grab FileSystem entries synchronously (items become invalid after await).
-		const entries = []
-		for (const it of e.dataTransfer.items || []) {
-			const en = it.webkitGetAsEntry?.()
-			if (en) entries.push(en)
-		}
-		if (entries.length) {
-			processDrop(entries).catch(err => toast.error(err.message))
+		const items = e.dataTransfer.items
+		if (items && items.length) {
+			let hasFolder = false
+			const files = []
+			for (const it of items) {
+				if (it.webkitGetAsEntry?.()?.isDirectory) {
+					hasFolder = true
+					continue
+				}
+				const f = it.getAsFile?.()
+				if (f) files.push(f)
+			}
+			if (hasFolder)
+				toast.error('Chỉ nhận file, không nhận thư mục. Hãy nén .zip/.rar rồi upload.')
+			if (files.length) enqueue(files)
 		} else {
-			enqueue(e.dataTransfer.files) // fallback (no entry API)
+			enqueue(e.dataTransfer.files)
 		}
 	}
 
@@ -1200,14 +1106,6 @@ export default function DriveBrowser() {
 			</div>
 
 			<FilePreview file={preview} onClose={() => setPreview(null)} />
-
-			{/* Drop preparation banner (reading folder / zipping) */}
-			{preparing && (
-				<div className="fixed bottom-4 left-4 z-30 flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm shadow-xl">
-					<Loader2 className="h-4 w-4 animate-spin" />
-					{preparing}
-				</div>
-			)}
 
 			{/* Upload overview panel */}
 			{uploads.length > 0 && (
