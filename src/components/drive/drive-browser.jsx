@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
+import { zipSync } from 'fflate'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -569,22 +570,70 @@ export default function DriveBrowser() {
 		setUploads([])
 	}
 
+	const isMedia = file => /^(image|video|audio)\//.test(file.type || '')
+
+	// Zip a dropped folder's contents (source/text folders) into one .zip and
+	// enqueue it as a single upload into the current folder.
+	async function enqueueZipFolder(folderName, list) {
+		toast.message(`Đang nén ${folderName}…`)
+		const files = {}
+		for (const { file, dir } of list) {
+			// dir[0] is the dropped folder's name; keep the relative path inside the zip.
+			files[[...dir, file.name].join('/')] = new Uint8Array(
+				await file.arrayBuffer()
+			)
+		}
+		const zipped = zipSync(files, { level: 6 })
+		const zipFile = new File([zipped], `${folderName}.zip`, {
+			type: 'application/zip'
+		})
+		const entry = {
+			id: crypto.randomUUID(),
+			file: zipFile,
+			folderId: parentId,
+			name: zipFile.name,
+			size: zipFile.size,
+			status: 'pending',
+			error: null
+		}
+		uploadsRef.current = [...uploadsRef.current, entry]
+		setUploads(uploadsRef.current)
+		runQueue()
+	}
+
+	// Classify each dropped top-level entry:
+	//  - folder WITH media (image/video/audio) → upload files individually (recreate tree)
+	//  - folder of only text/source files       → zip it, upload one .zip
+	//  - loose files                             → upload individually
+	async function processDrop(entries) {
+		const individual = [] // [{ file, dir }]
+		for (const en of entries) {
+			if (en.isFile) {
+				const file = await new Promise((res, rej) => en.file(res, rej))
+				individual.push({ file, dir: [] })
+			} else if (en.isDirectory) {
+				const list = await readEntry(en, [])
+				if (!list.length) continue
+				if (list.some(x => isMedia(x.file))) individual.push(...list)
+				else await enqueueZipFolder(en.name, list)
+			}
+		}
+		if (individual.length) await enqueueWithPaths(individual)
+	}
+
 	function onDrop(e) {
 		e.preventDefault()
 		e.stopPropagation()
 		// Internal file-move drops are handled by folder targets; ignore here.
 		if (e.dataTransfer.types.includes(MOVE_MIME)) return
-		// Grab FileSystem entries synchronously (items become invalid after await)
-		// so we can read files INSIDE dropped folders + recreate the structure.
+		// Grab FileSystem entries synchronously (items become invalid after await).
 		const entries = []
 		for (const it of e.dataTransfer.items || []) {
 			const en = it.webkitGetAsEntry?.()
 			if (en) entries.push(en)
 		}
 		if (entries.length) {
-			Promise.all(entries.map(en => readEntry(en, [])))
-				.then(lists => enqueueWithPaths(lists.flat()))
-				.catch(err => toast.error(err.message))
+			processDrop(entries).catch(err => toast.error(err.message))
 		} else {
 			enqueue(e.dataTransfer.files) // fallback (no entry API)
 		}
