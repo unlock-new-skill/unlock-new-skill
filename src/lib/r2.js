@@ -63,7 +63,12 @@ function client() {
 		cached = new S3Client({
 			region: 'auto',
 			endpoint,
-			credentials: { accessKeyId, secretAccessKey }
+			credentials: { accessKeyId, secretAccessKey },
+			// AWS SDK v3 defaults to adding a CRC32 checksum, which bakes a
+			// wrong (empty-body) checksum into presigned PUT URLs and makes the
+			// browser upload fail with 400. R2 doesn't require it → disable.
+			requestChecksumCalculation: 'WHEN_REQUIRED',
+			responseChecksumValidation: 'WHEN_REQUIRED'
 		})
 	}
 	return cached

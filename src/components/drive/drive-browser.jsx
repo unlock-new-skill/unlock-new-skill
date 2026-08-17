@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -69,6 +69,8 @@ export default function DriveBrowser() {
 	const [nameDialog, setNameDialog] = useState(null)
 	// { type:'folder'|'file', id, name }
 	const [deleteTarget, setDeleteTarget] = useState(null)
+	// Synchronous re-entry lock (setBusy is async → can't block a double Enter/click).
+	const submitting = useRef(false)
 
 	const parentId = stack[stack.length - 1].id
 
@@ -208,9 +210,10 @@ export default function DriveBrowser() {
 	}
 
 	async function submitName() {
-		if (!nameDialog) return
+		if (!nameDialog || submitting.current) return
 		const value = nameDialog.value.trim()
 		if (!value) return
+		submitting.current = true
 		setBusy(true)
 		try {
 			let res
@@ -228,11 +231,13 @@ export default function DriveBrowser() {
 			toast.error(err.message)
 		} finally {
 			setBusy(false)
+			submitting.current = false
 		}
 	}
 
 	async function confirmDelete() {
-		if (!deleteTarget) return
+		if (!deleteTarget || submitting.current) return
+		submitting.current = true
 		setBusy(true)
 		try {
 			const res =
@@ -246,6 +251,7 @@ export default function DriveBrowser() {
 			toast.error(err.message)
 		} finally {
 			setBusy(false)
+			submitting.current = false
 		}
 	}
 
