@@ -2,18 +2,16 @@ import Link from 'next/link'
 import { logout } from '@/lib/auth-actions'
 import { Button } from '@/components/ui/button'
 import { isDbConfigured } from '@/lib/prisma'
+import { ADMIN_APPS } from '@/lib/admin-apps'
 
-export const metadata = { title: 'Admin - Portfolio' }
+export const metadata = { title: 'Admin' }
 // Admin is behind auth + reads live data — never prerender.
 export const dynamic = 'force-dynamic'
 
+// Hub link + one entry per registered app (extensible via ADMIN_APPS).
 const nav = [
-	{ href: '/admin', label: 'Dashboard' },
-	{ href: '/admin/home', label: 'Trang chủ' },
-	{ href: '/admin/tech', label: 'Tech stack' },
-	{ href: '/admin/projects', label: 'Dự án' },
-	{ href: '/admin/companies', label: 'Công ty' },
-	{ href: '/admin/cv', label: 'CV' }
+	{ href: '/admin', label: '🧩 Apps' },
+	...ADMIN_APPS.map(a => ({ href: a.href, label: a.title }))
 ]
 
 export default function AdminLayout({ children }) {
