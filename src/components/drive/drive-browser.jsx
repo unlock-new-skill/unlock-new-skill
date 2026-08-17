@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -31,6 +32,8 @@ import {
 	confirmFile,
 	renameFile,
 	deleteFile,
+	deleteFiles,
+	moveFiles,
 	startMultipart,
 	signParts,
 	finishMultipart,
@@ -80,6 +83,9 @@ export default function DriveBrowser() {
 	const [view, setView] = useState('grid') // 'grid' | 'list'
 	const [search, setSearch] = useState('')
 	const [sort, setSort] = useState({ key: 'name', dir: 'asc' }) // key: name|size|date
+	const [selected, setSelected] = useState(() => new Set()) // selected file ids
+	const [moveOpen, setMoveOpen] = useState(false) // move-to-folder dialog
+	const [dragOverId, setDragOverId] = useState(undefined) // folder highlighted on drag (null=root)
 	// Synchronous re-entry lock (setBusy is async → can't block a double Enter/click).
 	const submitting = useRef(false)
 
@@ -177,6 +183,7 @@ export default function DriveBrowser() {
 	 */
 	const setActive = useCallback(id => {
 		setActiveId(id)
+		setSelected(new Set()) // reset selection when changing folder
 		const url = id
 			? `${window.location.pathname}?folder=${id}`
 			: window.location.pathname
@@ -250,6 +257,63 @@ export default function DriveBrowser() {
 					setDeleteTarget({ type: 'file', id: file.id, name: file.name })
 			}
 		]
+	}
+
+	// --- selection + bulk / move ---
+	const MOVE_MIME = 'application/x-drive-file-ids'
+
+	function toggleSelect(id) {
+		setSelected(prev => {
+			const n = new Set(prev)
+			if (n.has(id)) n.delete(id)
+			else n.add(id)
+			return n
+		})
+	}
+	const selectAllFiles = () => setSelected(new Set(shownFiles.map(f => f.id)))
+	const clearSelection = () => setSelected(new Set())
+
+	function onFileDragStart(e, id) {
+		// If the dragged file is part of the selection, move all selected; else just it.
+		const ids = selected.has(id) ? [...selected] : [id]
+		e.dataTransfer.setData(MOVE_MIME, JSON.stringify(ids))
+		e.dataTransfer.effectAllowed = 'move'
+	}
+
+	async function moveTo(folderId, ids) {
+		const list = ids && ids.length ? ids : [...selected]
+		if (!list.length) return
+		try {
+			const res = await moveFiles({ ids: list, folderId })
+			if (res?.error) throw new Error(res.error)
+			clearSelection()
+			setMoveOpen(false)
+			await loadLevel()
+			toast.success(`Đã chuyển ${list.length} file`)
+		} catch (err) {
+			toast.error(err.message)
+		}
+	}
+
+	function onFolderDragOver(e, folderId) {
+		if (e.dataTransfer.types.includes(MOVE_MIME)) {
+			e.preventDefault()
+			e.stopPropagation()
+			setDragOverId(folderId)
+		}
+	}
+
+	function onFolderDrop(e, folderId) {
+		const raw = e.dataTransfer.getData(MOVE_MIME)
+		if (!raw) return // OS file drop → let the upload zone handle it
+		e.preventDefault()
+		e.stopPropagation()
+		setDragOverId(undefined)
+		try {
+			moveTo(folderId, JSON.parse(raw))
+		} catch {
+			/* ignore malformed payload */
+		}
 	}
 
 	// --- uploads: one file, single PUT or multipart depending on size ---
@@ -478,8 +542,11 @@ export default function DriveBrowser() {
 			const res =
 				deleteTarget.type === 'folder'
 					? await deleteFolder({ id: deleteTarget.id })
-					: await deleteFile({ id: deleteTarget.id })
+					: deleteTarget.type === 'files'
+						? await deleteFiles({ ids: deleteTarget.ids })
+						: await deleteFile({ id: deleteTarget.id })
 			if (res?.error) throw new Error(res.error)
+			if (deleteTarget.type === 'files') clearSelection()
 			// If the deleted folder was active (or an ancestor), fall back to root.
 			if (
 				deleteTarget.type === 'folder' &&
@@ -502,9 +569,12 @@ export default function DriveBrowser() {
 		return childrenOf(pid).map(f => (
 			<div key={f.id}>
 				<div
+					onDragOver={e => onFolderDragOver(e, f.id)}
+					onDragLeave={() => setDragOverId(undefined)}
+					onDrop={e => onFolderDrop(e, f.id)}
 					className={`group flex items-center rounded pr-1 hover:bg-zinc-800 ${
 						activeId === f.id ? 'bg-zinc-800' : ''
-					}`}
+					} ${dragOverId === f.id ? 'ring-1 ring-blue-500' : ''}`}
 				>
 					<button
 						type="button"
@@ -521,6 +591,23 @@ export default function DriveBrowser() {
 					</div>
 				</div>
 				<TreeNodes pid={f.id} depth={depth + 1} />
+			</div>
+		))
+	}
+
+	// Folder picker rows for the move-to dialog.
+	function MovePicker({ pid, depth }) {
+		return childrenOf(pid).map(f => (
+			<div key={f.id}>
+				<button
+					type="button"
+					onClick={() => moveTo(f.id, [...selected])}
+					style={{ paddingLeft: depth * 12 + 8 }}
+					className="block w-full truncate rounded py-1 pr-2 text-left text-sm text-zinc-300 hover:bg-zinc-800"
+				>
+					📁 {f.name}
+				</button>
+				<MovePicker pid={f.id} depth={depth + 1} />
 			</div>
 		))
 	}
@@ -636,6 +723,48 @@ export default function DriveBrowser() {
 					</div>
 				</div>
 
+				{/* Selection action bar */}
+				{selected.size > 0 && (
+					<div className="flex flex-wrap items-center gap-2 rounded-md border border-blue-900 bg-blue-950/40 px-3 py-2 text-sm">
+						<span className="font-medium">{selected.size} đã chọn</span>
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={() => setMoveOpen(true)}
+						>
+							Chuyển tới…
+						</Button>
+						<Button
+							variant="outline"
+							size="sm"
+							className="text-red-400"
+							onClick={() =>
+								setDeleteTarget({
+									type: 'files',
+									ids: [...selected],
+									name: `${selected.size} file`
+								})
+							}
+						>
+							Xoá
+						</Button>
+						<button
+							type="button"
+							onClick={selectAllFiles}
+							className="text-xs text-zinc-400 hover:text-zinc-100"
+						>
+							Chọn hết
+						</button>
+						<button
+							type="button"
+							onClick={clearSelection}
+							className="text-xs text-zinc-400 hover:text-zinc-100"
+						>
+							Bỏ chọn
+						</button>
+					</div>
+				)}
+
 				{/* Drop zone + items */}
 				<div
 					onDragOver={e => e.preventDefault()}
@@ -643,7 +772,9 @@ export default function DriveBrowser() {
 					className="min-h-[300px] rounded-lg border border-dashed border-zinc-800 p-4"
 				>
 					{loading ? (
-						<p className="text-sm text-zinc-500">Đang tải…</p>
+						<div className="grid h-64 place-items-center text-zinc-500">
+							<Loader2 className="h-6 w-6 animate-spin" />
+						</div>
 					) : isEmpty ? (
 						<p className="grid h-64 place-items-center text-sm text-zinc-600">
 							{q ? 'Không tìm thấy.' : 'Trống. Kéo-thả file vào đây hoặc bấm Upload.'}
@@ -653,7 +784,14 @@ export default function DriveBrowser() {
 							{shownFolders.map(folder => (
 								<div
 									key={folder.id}
-									className="relative rounded-lg border border-zinc-800 bg-zinc-900 p-3 hover:border-zinc-600"
+									onDragOver={e => onFolderDragOver(e, folder.id)}
+									onDragLeave={() => setDragOverId(undefined)}
+									onDrop={e => onFolderDrop(e, folder.id)}
+									className={`relative rounded-lg border bg-zinc-900 p-3 hover:border-zinc-600 ${
+										dragOverId === folder.id
+											? 'border-blue-500 ring-1 ring-blue-500'
+											: 'border-zinc-800'
+									}`}
 								>
 									<div className="absolute right-1 top-1">
 										<KebabMenu items={folderMenu(folder)} />
@@ -672,8 +810,21 @@ export default function DriveBrowser() {
 							{shownFiles.map(file => (
 								<div
 									key={file.id}
-									className="relative rounded-lg border border-zinc-800 bg-zinc-900 p-3 hover:border-zinc-600"
+									draggable
+									onDragStart={e => onFileDragStart(e, file.id)}
+									className={`relative rounded-lg border bg-zinc-900 p-3 hover:border-zinc-600 ${
+										selected.has(file.id)
+											? 'border-blue-500 ring-1 ring-blue-500'
+											: 'border-zinc-800'
+									}`}
 								>
+									<input
+										type="checkbox"
+										checked={selected.has(file.id)}
+										onChange={() => toggleSelect(file.id)}
+										onClick={e => e.stopPropagation()}
+										className="absolute left-2 top-2 z-10 h-4 w-4 cursor-pointer accent-blue-500"
+									/>
 									<div className="absolute right-1 top-1 z-10">
 										<KebabMenu items={fileMenu(file)} />
 									</div>
@@ -709,6 +860,20 @@ export default function DriveBrowser() {
 							<table className="w-full text-sm">
 								<thead className="text-left text-xs text-zinc-500">
 									<tr className="border-b border-zinc-800">
+										<th className="w-8 py-2">
+											<input
+												type="checkbox"
+												aria-label="Chọn tất cả file"
+												checked={
+													shownFiles.length > 0 &&
+													selected.size === shownFiles.length
+												}
+												onChange={e =>
+													e.target.checked ? selectAllFiles() : clearSelection()
+												}
+												className="h-4 w-4 cursor-pointer accent-blue-500"
+											/>
+										</th>
 										<th className="py-2 pr-3 font-medium">Tên</th>
 										<th className="py-2 pr-3 font-medium">Loại</th>
 										<th className="py-2 pr-3 font-medium">Kích thước</th>
@@ -720,8 +885,14 @@ export default function DriveBrowser() {
 									{shownFolders.map(folder => (
 										<tr
 											key={folder.id}
-											className="border-b border-zinc-900 hover:bg-zinc-900"
+											onDragOver={e => onFolderDragOver(e, folder.id)}
+											onDragLeave={() => setDragOverId(undefined)}
+											onDrop={e => onFolderDrop(e, folder.id)}
+											className={`border-b border-zinc-900 hover:bg-zinc-900 ${
+												dragOverId === folder.id ? 'ring-1 ring-blue-500' : ''
+											}`}
 										>
+											<td className="py-2" />
 											<td className="py-2 pr-3">
 												<button
 													type="button"
@@ -744,8 +915,20 @@ export default function DriveBrowser() {
 									{shownFiles.map(file => (
 										<tr
 											key={file.id}
-											className="border-b border-zinc-900 hover:bg-zinc-900"
+											draggable
+											onDragStart={e => onFileDragStart(e, file.id)}
+											className={`border-b border-zinc-900 hover:bg-zinc-900 ${
+												selected.has(file.id) ? 'bg-blue-950/30' : ''
+											}`}
 										>
+											<td className="py-2">
+												<input
+													type="checkbox"
+													checked={selected.has(file.id)}
+													onChange={() => toggleSelect(file.id)}
+													className="h-4 w-4 cursor-pointer accent-blue-500"
+												/>
+											</td>
 											<td className="py-2 pr-3">
 												<button
 													type="button"
@@ -898,6 +1081,25 @@ export default function DriveBrowser() {
 				</DialogContent>
 			</Dialog>
 
+			{/* Move-to-folder dialog */}
+			<Dialog open={moveOpen} onOpenChange={o => !o && setMoveOpen(false)}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Chuyển {selected.size} file tới…</DialogTitle>
+					</DialogHeader>
+					<div className="max-h-72 overflow-auto rounded border border-zinc-800 p-1">
+						<button
+							type="button"
+							onClick={() => moveTo(null, [...selected])}
+							className="block w-full truncate rounded px-2 py-1 text-left text-sm font-medium text-zinc-200 hover:bg-zinc-800"
+						>
+							🗂️ Drive (gốc)
+						</button>
+						<MovePicker pid={null} depth={1} />
+					</div>
+				</DialogContent>
+			</Dialog>
+
 			{/* Delete confirm */}
 			<AlertDialog
 				open={Boolean(deleteTarget)}
@@ -909,7 +1111,9 @@ export default function DriveBrowser() {
 						<AlertDialogDescription>
 							{deleteTarget?.type === 'folder'
 								? 'Chỉ xoá được thư mục rỗng. Nếu còn file/thư mục con bên trong, hãy xoá hết trước.'
-								: 'File sẽ bị xoá khỏi R2 và không hoàn tác được.'}
+								: deleteTarget?.type === 'files'
+									? `${deleteTarget.ids?.length || 0} file sẽ bị xoá khỏi R2. Không hoàn tác được.`
+									: 'File sẽ bị xoá khỏi R2 và không hoàn tác được.'}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>

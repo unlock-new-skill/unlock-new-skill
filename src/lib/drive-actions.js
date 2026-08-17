@@ -7,6 +7,7 @@ import {
 	createPresignedPutUrl,
 	publicUrl,
 	deleteObject,
+	deleteObjects,
 	isPersonalR2Configured,
 	createMultipart,
 	presignUploadPart,
@@ -232,4 +233,31 @@ export async function moveFile({ id, folderId = null }) {
 		data: { folderId }
 	})
 	return withUrl(file)
+}
+
+/** Bulk delete files: purge R2 blobs then rows. */
+export async function deleteFiles({ ids }) {
+	await requireAdmin()
+	if (!ids?.length) return { ok: true }
+	const files = await prisma.fileObject.findMany({
+		where: { id: { in: ids } },
+		select: { key: true }
+	})
+	await deleteObjects(
+		files.map(f => f.key),
+		BUCKET
+	)
+	await prisma.fileObject.deleteMany({ where: { id: { in: ids } } })
+	return { ok: true }
+}
+
+/** Bulk move files into a folder (folderId null = root). DB-only, no R2 op. */
+export async function moveFiles({ ids, folderId = null }) {
+	await requireAdmin()
+	if (!ids?.length) return { ok: true }
+	await prisma.fileObject.updateMany({
+		where: { id: { in: ids } },
+		data: { folderId }
+	})
+	return { ok: true }
 }
