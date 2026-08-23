@@ -1,13 +1,9 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
-import {
-	Dialog,
-	DialogContent,
-	DialogHeader,
-	DialogTitle,
-	DialogTrigger
-} from '@/components/ui/dialog'
+import { ChevronDown, FolderGit2 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 const T = {
 	vi: { kicker: 'Dự án', heading: 'Dự án gần đây' },
@@ -28,91 +24,99 @@ export default function Projects({ items, locale = 'vi' }) {
 				</h2>
 			</div>
 
-			<div className="mx-auto flex max-w-[960px] flex-col gap-12 px-6">
+			<div className="mx-auto flex max-w-[960px] flex-col gap-6 px-6">
 				{items.map(item => (
-					<Dialog key={item.id || item.name}>
-						<DialogTrigger asChild>
-							<div
-								role="button"
-								tabIndex={0}
-								className="container_item neu-card block w-full cursor-pointer p-5 text-left opacity-0 transition-transform hover:-translate-y-1 md:grid md:grid-cols-2 md:items-center md:gap-8"
-							>
-								{item.image_url && (
-									/* eslint-disable-next-line @next/next/no-img-element */
-									<img
-										src={item.image_url}
-										alt={item.name}
-										className="aspect-[16/10] w-full rounded-2xl object-cover"
-									/>
-								)}
-								<div className="flex flex-col gap-3 pt-4 md:pt-0">
-									{item.tags?.[0] && (
-										<span className="card-kicker">{item.tags[0]}</span>
-									)}
-									<h3 className="card-title text-xl">{item.name}</h3>
-									{item.description_html ? (
-										<div
-											className="text-sm leading-relaxed text-[color:var(--color-text)]/80 [&_a]:text-[color:var(--color-accent)] [&_h2]:mt-2 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mt-2 [&_h3]:font-semibold [&_img]:my-2 [&_img]:rounded-md [&_li]:ml-4 [&_ol]:list-decimal [&_ul]:list-disc"
-											dangerouslySetInnerHTML={{ __html: item.description_html }}
-										/>
-									) : (
-										item.description && (
-											<p className="text-sm leading-relaxed text-[color:var(--color-text)]/80">
-												{item.description}
-											</p>
-										)
-									)}
-								</div>
-							</div>
-						</DialogTrigger>
-
-						<DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto border-[color:var(--color-divider)] bg-[color:var(--color-bg)] text-[color:var(--color-text)]">
-							<DialogHeader>
-								<DialogTitle className="text-2xl">{item.name}</DialogTitle>
-							</DialogHeader>
-							{item.image_url && (
-								/* eslint-disable-next-line @next/next/no-img-element */
-								<img
-									src={item.image_url}
-									alt={item.name}
-									className="w-full rounded-md object-cover"
-								/>
-							)}
-							{item.tags?.length > 0 && (
-								<div className="flex flex-wrap gap-2">
-									{item.tags.map(t => (
-										<span key={t} className="tag tag-outline">
-											{t}
-										</span>
-									))}
-								</div>
-							)}
-							{item.description_html && (
-								<div
-									className="text-sm leading-relaxed [&_a]:text-[color:var(--color-accent)] [&_img]:my-3 [&_img]:rounded-md [&_li]:ml-4 [&_ol]:list-decimal [&_ul]:list-disc"
-									dangerouslySetInnerHTML={{ __html: item.description_html }}
-								/>
-							)}
-							{item.urls?.length > 0 && (
-								<div className="flex flex-wrap gap-4 pt-2 text-sm">
-									{item.urls.map(u => (
-										<Link
-											href={u}
-											target="_blank"
-											key={u}
-											className="text-[color:var(--color-accent)] hover:underline"
-										>
-											{prettyHost(u)}
-										</Link>
-									))}
-								</div>
-							)}
-						</DialogContent>
-					</Dialog>
+					<ProjectAccordion key={item.id || item.name} item={item} />
 				))}
 			</div>
 		</div>
 	)
+}
+
+function ProjectAccordion({ item }) {
+	const [open, setOpen] = useState(false)
+	const panelId = `project-panel-${item.id || slugify(item.name)}`
+
+	return (
+		<div className="container_item neu-card w-full p-0 opacity-0">
+			<button
+				type="button"
+				aria-expanded={open}
+				aria-controls={panelId}
+				onClick={() => setOpen(v => !v)}
+				className="flex w-full items-center gap-4 p-5 text-left"
+			>
+				<span className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[color:var(--color-text)]/5">
+					{item.image_url ? (
+						/* eslint-disable-next-line @next/next/no-img-element */
+						<img
+							src={item.image_url}
+							alt=""
+							className="size-full object-cover"
+						/>
+					) : (
+						<FolderGit2
+							className="size-5 text-[color:var(--color-accent)]"
+							aria-hidden="true"
+						/>
+					)}
+				</span>
+
+				<span className="flex min-w-0 flex-col gap-1">
+					{item.tags?.[0] && (
+						<span className="card-kicker">{item.tags[0]}</span>
+					)}
+					<span className="card-title text-xl">{item.name}</span>
+				</span>
+
+				<ChevronDown
+					aria-hidden="true"
+					className={cn(
+						'ml-auto size-5 shrink-0 transition-transform duration-300',
+						open && 'rotate-180'
+					)}
+				/>
+			</button>
+
+			<div
+				id={panelId}
+				hidden={!open}
+				className="flex flex-col gap-4 border-t border-[color:var(--color-divider)] px-5 py-5"
+			>
+				{item.description_html ? (
+					<div
+						className="text-sm leading-relaxed text-[color:var(--color-text)]/80 [&_a]:text-[color:var(--color-accent)] [&_h2]:mt-2 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mt-2 [&_h3]:font-semibold [&_img]:my-2 [&_img]:rounded-md [&_li]:ml-4 [&_ol]:list-decimal [&_ul]:list-disc"
+						dangerouslySetInnerHTML={{ __html: item.description_html }}
+					/>
+				) : (
+					item.description && (
+						<p className="text-sm leading-relaxed text-[color:var(--color-text)]/80">
+							{item.description}
+						</p>
+					)
+				)}
+
+				{item.urls?.length > 0 && (
+					<div className="flex flex-wrap gap-4 text-sm">
+						{item.urls.map(u => (
+							<Link
+								href={u}
+								target="_blank"
+								key={u}
+								className="text-[color:var(--color-accent)] hover:underline"
+							>
+								{prettyHost(u)}
+							</Link>
+						))}
+					</div>
+				)}
+			</div>
+		</div>
+	)
+}
+
+function slugify(value = '') {
+	return value.toLowerCase().replace(/[^a-z0-9]+/g, '-')
 }
 
 function prettyHost(url) {
