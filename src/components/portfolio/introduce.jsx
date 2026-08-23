@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import Link from 'next/link'
 import { defaultContent, defaultTechStack } from '@/lib/portfolio-defaults'
 import CvDialog from './cv-dialog'
@@ -14,12 +15,15 @@ export default function Introduce({ content, tech, cv }) {
 		<section className="relative flex min-h-screen flex-col items-center justify-center gap-10 py-20">
 			{/* Intro text */}
 			<div className="mx-auto flex w-full max-w-2xl flex-col items-center justify-center gap-3 p-4 text-center">
-				{/* eslint-disable-next-line @next/next/no-img-element */}
-				<img
+				<Image
 					id="avatar"
 					src={c.avatar_url || '/avatar.png'}
 					title="Avatar"
 					alt="avatar"
+					width={250}
+					height={250}
+					priority
+					sizes="250px"
 					className="aspect-square w-4/5 max-w-[250px] rounded-[50%] border-2 border-[color:var(--color-accent)] shadow-md"
 				/>
 				<h1 className="my_name text-[2rem] font-bold text-[color:var(--color-text)] md:text-[3rem]">

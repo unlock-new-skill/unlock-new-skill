@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef } from 'react'
+import Image from 'next/image'
 import {
 	Tooltip,
 	TooltipContent,
@@ -35,11 +36,13 @@ export default function TechGrid({ items }) {
 					<Tooltip>
 						<TooltipTrigger asChild>
 							<div className="tech_stack_item group relative z-[1] flex aspect-square max-w-[72px] translate-y-6 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] p-2 opacity-0 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-[color:var(--color-accent)]">
-								{/* eslint-disable-next-line @next/next/no-img-element */}
-								<img
+								<Image
 									src={i.image_url}
 									alt={i.name}
 									title={i.name}
+									width={72}
+									height={72}
+									sizes="72px"
 									className="h-full w-full rounded-lg bg-white object-contain p-1"
 								/>
 							</div>

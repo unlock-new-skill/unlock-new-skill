@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { ChevronDown, FolderGit2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -46,13 +47,14 @@ function ProjectAccordion({ item }) {
 				onClick={() => setOpen(v => !v)}
 				className="flex w-full items-center gap-4 p-5 text-left"
 			>
-				<span className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[color:var(--color-text)]/5">
+				<span className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[color:var(--color-text)]/5">
 					{item.image_url ? (
-						/* eslint-disable-next-line @next/next/no-img-element */
-						<img
+						<Image
 							src={item.image_url}
 							alt=""
-							className="size-full object-cover"
+							fill
+							sizes="48px"
+							className="object-cover"
 						/>
 					) : (
 						<FolderGit2

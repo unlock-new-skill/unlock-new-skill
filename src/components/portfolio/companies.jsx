@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import Link from 'next/link'
 
 const T = {
@@ -29,10 +30,11 @@ export default function Companies({ items, locale = 'vi' }) {
 							<span className="absolute -left-[1.9rem] top-1.5 h-3 w-3 rounded-full bg-[color:var(--color-accent)] ring-4 ring-[color:var(--color-bg)]" />
 							<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
 								{c.image_url && (
-									/* eslint-disable-next-line @next/next/no-img-element */
-									<img
+									<Image
 										src={c.image_url}
 										alt={c.name}
+										width={40}
+										height={40}
 										className="h-10 w-10 rounded-lg bg-white object-contain p-1"
 									/>
 								)}
