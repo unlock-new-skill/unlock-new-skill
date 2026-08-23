@@ -80,8 +80,10 @@ function ProjectAccordion({ item }) {
 
 			<div
 				id={panelId}
-				hidden={!open}
-				className="flex flex-col gap-4 border-t border-[color:var(--color-divider)] px-5 py-5"
+				className={cn(
+					'flex-col gap-4 border-t border-[color:var(--color-divider)] px-5 py-5',
+					open ? 'flex' : 'hidden'
+				)}
 			>
 				{item.description_html ? (
 					<div
