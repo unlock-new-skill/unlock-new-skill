@@ -14,11 +14,11 @@ const T = {
 const SCALE_RANGE = 0.08
 /**
  * Cards are transparent, so a covered card would otherwise print its text over
- * the one sliding across it. Fading it right out is what keeps the overlap
- * readable; the exponent front-loads the fade so it clears before the incoming
- * card reaches the text underneath.
+ * the one sliding across it. A card fades as the next one climbs the viewport,
+ * and is gone once that card has risen this fraction of the way up — well
+ * before it reaches the text underneath.
  */
-const FADE_EXPONENT = 0.6
+const FADE_SPAN = 0.5
 
 export default function Projects({ items, locale = 'vi' }) {
 	// Hide the whole section when there are no projects in the DB.
@@ -148,6 +148,7 @@ function useStackDepth(count) {
 		const update = () => {
 			rafId = 0
 			const els = wrappers.current
+			const viewport = window.innerHeight || 1
 			for (let i = 0; i < els.length - 1; i += 1) {
 				const el = els[i]
 				const next = els[i + 1]
@@ -155,13 +156,16 @@ function useStackDepth(count) {
 				if (!el || !next || !layer) continue
 
 				const height = el.offsetHeight || 1
+				const nextTop = next.getBoundingClientRect().top
 				const bottom = el.getBoundingClientRect().top + height
-				const covered = clamp(
-					(bottom - next.getBoundingClientRect().top) / height
-				)
+				const covered = clamp((bottom - nextTop) / height)
+				// Overlap can't drive the fade: the wrappers are contiguous, so it
+				// stays at zero until this card pins, by which point the next one is
+				// already across it. Track that card's climb up the viewport instead.
+				const fade = clamp((viewport - nextTop) / (viewport * FADE_SPAN))
 
 				layer.style.transform = `scale(${1 - covered * SCALE_RANGE})`
-				layer.style.opacity = `${1 - covered ** FADE_EXPONENT}`
+				layer.style.opacity = `${1 - fade}`
 			}
 		}
 
