@@ -65,7 +65,7 @@ function ProjectCard({ item }) {
 	return (
 		// The stack grows upward — each card covers the one before it — so the
 		// drop shadow is cast up, where it is actually visible.
-		<article className="container_item flex h-[80vh] w-full flex-col bg-[color:var(--color-accent-900)] p-5 opacity-0 shadow-[0_-1px_0_0_rgba(255,255,255,0.09),0_-24px_60px_-12px_rgba(0,0,0,0.9)]">
+		<article className="container_item flex h-[80vh] w-full flex-col bg-[color-mix(in_srgb,var(--color-surface)_95%,transparent)] p-5 opacity-0 shadow-[0_-1px_0_0_rgba(255,255,255,0.09),0_-24px_60px_-12px_rgba(0,0,0,0.9)]">
 			{/* Card spans the full width; its contents stay on a centred measure. */}
 			<header className="mx-auto flex w-full max-w-[960px] shrink-0 items-center gap-4">
 				<span className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[color:var(--color-text)]/5">
