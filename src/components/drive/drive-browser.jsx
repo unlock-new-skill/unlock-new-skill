@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -41,7 +42,11 @@ import {
 	abortUpload
 } from '@/lib/drive-actions'
 import FilePreview from './file-preview'
+import ImageLightbox from './image-lightbox'
 import KebabMenu from './kebab-menu'
+
+// Masonry pulls in gsap; keep it out of the bundle for grid/list users.
+const MasonryGrid = dynamic(() => import('./masonry-grid'), { ssr: false })
 
 // Files above this use multipart (parallel parts); below use a single PUT.
 const MULTIPART_THRESHOLD = 100 * 1024 * 1024 // 100 MB
@@ -81,7 +86,7 @@ export default function DriveBrowser() {
 	const runningRef = useRef(false)
 	const [nameDialog, setNameDialog] = useState(null) // { mode, id, value }
 	const [deleteTarget, setDeleteTarget] = useState(null) // { type, id, name }
-	const [view, setView] = useState('grid') // 'grid' | 'list'
+	const [view, setView] = useState('grid') // 'grid' | 'masonry' | 'list'
 	const [search, setSearch] = useState('')
 	const [sort, setSort] = useState({ key: 'name', dir: 'asc' }) // key: name|size|date
 	const [selected, setSelected] = useState(() => new Set()) // selected file ids
@@ -149,6 +154,23 @@ export default function DriveBrowser() {
 	const sentinelRef = useRef(null)
 	const visibleFiles = shownFiles.slice(0, visibleCount)
 	const hasMore = visibleCount < shownFiles.length
+
+	// Masonry is images-only. Memoised because the grid keys its measuring and
+	// layout effects off this array; a fresh one each render would re-run them.
+	const visibleImages = useMemo(
+		() =>
+			shownFiles.slice(0, visibleCount).filter(f => f.mime?.startsWith('image/')),
+		[shownFiles, visibleCount]
+	)
+
+	// The lightbox tracks a file id, not a position: this list grows on scroll
+	// and re-sorts after an upload, so an index would drift onto another image
+	// or fall out of range and silently reopen later.
+	const [lightboxId, setLightboxId] = useState(null)
+	const lightboxIndex = useMemo(
+		() => (lightboxId ? visibleImages.findIndex(f => f.id === lightboxId) : -1),
+		[lightboxId, visibleImages]
+	)
 
 	// Reset the window whenever the listing/filter/sort changes.
 	useEffect(() => {
@@ -819,14 +841,25 @@ export default function DriveBrowser() {
 							type="button"
 							onClick={() => setView('grid')}
 							title="Dạng lưới"
+							aria-label="Dạng lưới"
 							className={`px-3 py-1.5 text-sm ${view === 'grid' ? 'bg-zinc-800 text-white' : 'text-zinc-400'}`}
 						>
 							▦
 						</button>
 						<button
 							type="button"
+							onClick={() => setView('masonry')}
+							title="Dạng masonry (chỉ ảnh)"
+							aria-label="Dạng masonry (chỉ ảnh)"
+							className={`px-3 py-1.5 text-sm ${view === 'masonry' ? 'bg-zinc-800 text-white' : 'text-zinc-400'}`}
+						>
+							▢
+						</button>
+						<button
+							type="button"
 							onClick={() => setView('list')}
 							title="Dạng danh sách"
+							aria-label="Dạng danh sách"
 							className={`px-3 py-1.5 text-sm ${view === 'list' ? 'bg-zinc-800 text-white' : 'text-zinc-400'}`}
 						>
 							☰
@@ -890,6 +923,17 @@ export default function DriveBrowser() {
 						<p className="grid h-64 place-items-center text-sm text-zinc-600">
 							{q ? 'Không tìm thấy.' : 'Trống. Kéo-thả file vào đây hoặc bấm Upload.'}
 						</p>
+					) : view === 'masonry' ? (
+						visibleImages.length === 0 ? (
+							<p className="grid h-64 place-items-center text-sm text-zinc-600">
+								Thư mục này chưa có ảnh nào.
+							</p>
+						) : (
+							<MasonryGrid
+								items={visibleImages}
+								onSelect={i => setLightboxId(visibleImages[i]?.id ?? null)}
+							/>
+						)
 					) : view === 'grid' ? (
 						<div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">
 							{shownFolders.map(folder => (
@@ -1106,6 +1150,13 @@ export default function DriveBrowser() {
 			</div>
 
 			<FilePreview file={preview} onClose={() => setPreview(null)} />
+
+			<ImageLightbox
+				images={visibleImages}
+				index={lightboxIndex}
+				onIndexChange={i => setLightboxId(visibleImages[i]?.id ?? null)}
+				onClose={() => setLightboxId(null)}
+			/>
 
 			{/* Upload overview panel */}
 			{uploads.length > 0 && (
