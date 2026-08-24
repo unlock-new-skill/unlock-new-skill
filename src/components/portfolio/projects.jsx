@@ -47,7 +47,7 @@ function ProjectStack({ items }) {
 					ref={el => {
 						wrappers.current[index] = el
 					}}
-					className="sticky h-[86svh]"
+					className="sticky h-[88vh]"
 					style={{ top: `calc(2rem + ${index * 12}px)` }}
 				>
 					{/* Scale layer: owned by the scroll handler, so it never fights
@@ -63,7 +63,7 @@ function ProjectStack({ items }) {
 
 function ProjectCard({ item }) {
 	return (
-		<article className="container_item neu-card flex max-h-[78svh] w-full flex-col p-5 opacity-0 shadow-[0_-1px_0_0_rgba(255,255,255,0.06),0_24px_60px_-24px_rgba(0,0,0,0.8)]">
+		<article className="container_item neu-card flex h-[80vh] w-full flex-col p-5 opacity-0 shadow-[0_-1px_0_0_rgba(255,255,255,0.06),0_24px_60px_-24px_rgba(0,0,0,0.8)]">
 			<header className="flex shrink-0 items-center gap-4">
 				<span className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[color:var(--color-text)]/5">
 					{item.image_url ? (

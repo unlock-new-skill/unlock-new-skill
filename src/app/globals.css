@@ -153,6 +153,19 @@
 /* Dark tiled background. */
 .nocturne-bg {
 	background-color: #111111;
+	color: var(--color-text);
+	/* Keeps the ::before tile above this element's own background colour but
+	   behind every child, without leaking into the page's root stacking order. */
+	isolation: isolate;
+}
+/* The tile lives on its own viewport-fixed layer: scrolling a 60px pattern
+   along with the content reads as visual noise. */
+.nocturne-bg::before {
+	content: '';
+	position: fixed;
+	inset: 0;
+	z-index: -1;
+	pointer-events: none;
 	background-image: linear-gradient(
 		32deg,
 		rgba(8, 8, 8, 0.74) 30px,
@@ -160,7 +173,6 @@
 	);
 	background-size: 60px 60px;
 	background-position: -5px -5px;
-	color: var(--color-text);
 }
 
 .lighten {
