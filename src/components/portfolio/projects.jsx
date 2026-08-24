@@ -39,13 +39,16 @@ function ProjectStack({ items }) {
 	return (
 		<div className="mx-auto flex max-w-[960px] flex-col px-6">
 			{items.map((item, index) => (
+				// Fixed-height wrapper: its height is the scroll travel each card
+				// gets to stay pinned. A card sized to its own content leaves no
+				// slack in the containing block, so sticky would release instantly.
 				<div
 					key={item.id || item.name}
 					ref={el => {
 						wrappers.current[index] = el
 					}}
-					className="sticky mb-8 last:mb-0"
-					style={{ top: `calc(4rem + ${index * 10}px)` }}
+					className="sticky h-[86svh]"
+					style={{ top: `calc(2rem + ${index * 12}px)` }}
 				>
 					{/* Scale layer: owned by the scroll handler, so it never fights
 					    the one-shot reveal animation running on .container_item. */}
@@ -60,8 +63,8 @@ function ProjectStack({ items }) {
 
 function ProjectCard({ item }) {
 	return (
-		<article className="container_item neu-card w-full p-5 opacity-0 shadow-[0_-1px_0_0_rgba(255,255,255,0.06),0_24px_60px_-24px_rgba(0,0,0,0.8)]">
-			<header className="flex items-center gap-4">
+		<article className="container_item neu-card flex max-h-[78svh] w-full flex-col p-5 opacity-0 shadow-[0_-1px_0_0_rgba(255,255,255,0.06),0_24px_60px_-24px_rgba(0,0,0,0.8)]">
+			<header className="flex shrink-0 items-center gap-4">
 				<span className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[color:var(--color-text)]/5">
 					{item.image_url ? (
 						<Image
@@ -85,7 +88,9 @@ function ProjectCard({ item }) {
 				</span>
 			</header>
 
-			<div className="mt-5 flex flex-col gap-4 border-t border-[color:var(--color-divider)] pt-5">
+			{/* Descriptions are author-supplied HTML of arbitrary length, so the
+			    body scrolls rather than pushing the card past the viewport. */}
+			<div className="mt-5 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto border-t border-[color:var(--color-divider)] pt-5">
 				{item.description_html ? (
 					<div
 						className="text-sm leading-relaxed text-[color:var(--color-text)]/80 [&_a]:text-[color:var(--color-accent)] [&_h2]:mt-2 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mt-2 [&_h3]:font-semibold [&_img]:my-2 [&_img]:rounded-md [&_li]:ml-4 [&_ol]:list-decimal [&_ul]:list-disc"
