@@ -37,7 +37,7 @@ function ProjectStack({ items }) {
 	const wrappers = useStackDepth(items.length)
 
 	return (
-		<div className="mx-auto flex max-w-[960px] flex-col px-6">
+		<div className="flex w-full flex-col px-6">
 			{items.map((item, index) => (
 				// Fixed-height wrapper: its height is the scroll travel each card
 				// gets to stay pinned. A card sized to its own content leaves no
@@ -64,7 +64,8 @@ function ProjectStack({ items }) {
 function ProjectCard({ item }) {
 	return (
 		<article className="container_item neu-card flex h-[80vh] w-full flex-col p-5 opacity-0 shadow-[0_-1px_0_0_rgba(255,255,255,0.06),0_24px_60px_-24px_rgba(0,0,0,0.8)]">
-			<header className="flex shrink-0 items-center gap-4">
+			{/* Card spans the full width; its contents stay on a centred measure. */}
+			<header className="mx-auto flex w-full max-w-[960px] shrink-0 items-center gap-4">
 				<span className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[color:var(--color-text)]/5">
 					{item.image_url ? (
 						<Image
@@ -90,7 +91,7 @@ function ProjectCard({ item }) {
 
 			{/* Descriptions are author-supplied HTML of arbitrary length, so the
 			    body scrolls rather than pushing the card past the viewport. */}
-			<div className="mt-5 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto border-t border-[color:var(--color-divider)] pt-5">
+			<div className="mx-auto mt-5 flex w-full min-h-0 max-w-[960px] flex-1 flex-col gap-4 overflow-y-auto border-t border-[color:var(--color-divider)] pt-5">
 				{item.description_html ? (
 					<div
 						className="text-sm leading-relaxed text-[color:var(--color-text)]/80 [&_a]:text-[color:var(--color-accent)] [&_h2]:mt-2 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mt-2 [&_h3]:font-semibold [&_img]:my-2 [&_img]:rounded-md [&_li]:ml-4 [&_ol]:list-decimal [&_ul]:list-disc"

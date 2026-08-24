@@ -71,12 +71,11 @@ export default function PortfolioView({
 				for (const entry of entries) {
 					if (!entry.isIntersecting || revealed.has(entry.target)) continue
 					revealed.add(entry.target)
+					// Project cards fade only — they are pinned in a sticky stack, so
+					// a slide would fight the position the scroll handler gives them.
 					const isProject = entry.target.classList.contains('container_item')
 					animate(entry.target, {
 						opacity: { from: 0, to: 1 },
-						translateX: isProject
-							? { from: '-120px', to: '0px' }
-							: { from: '0px', to: '0px' },
 						translateY: isProject
 							? { from: '0px', to: '0px' }
 							: { from: '40px', to: '0px' },
