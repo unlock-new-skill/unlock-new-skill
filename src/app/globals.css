@@ -255,9 +255,9 @@
 }
 
 /* Pixel-art cursors, scoped to the portfolio so admin tooling keeps the
-   system ones. Hotspots: the arrow tip, and the pointing fingertip. */
+   system ones. Hotspots: the graphite tip, and the pointing fingertip. */
 .nocturne-bg {
-	cursor: url('/cursor/arrow.png') 0 0, auto;
+	cursor: url('/cursor/pencil.png') 2 28, auto;
 }
 .nocturne-bg a,
 .nocturne-bg button,
