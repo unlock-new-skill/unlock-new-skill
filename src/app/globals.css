@@ -254,25 +254,16 @@
 	background: color-mix(in srgb, var(--color-accent) 10%, transparent);
 }
 
-/* Page-wide cursor light. */
-.cursor-glow {
-	position: fixed;
-	inset: 0;
-	z-index: 40;
-	pointer-events: none;
-	opacity: 0;
-	transition: opacity 0.3s ease;
-	mix-blend-mode: screen;
-	background: radial-gradient(
-		420px circle at var(--gx, 50%) var(--gy, 50%),
-		rgba(145, 132, 217, 0.1),
-		transparent 60%
-	);
+/* Pixel-art cursors, scoped to the portfolio so admin tooling keeps the
+   system ones. Hotspots: the arrow tip, and the pointing fingertip. */
+.nocturne-bg {
+	cursor: url('/cursor/arrow.png') 0 0, auto;
 }
-@media (prefers-reduced-motion: reduce) {
-	.cursor-glow {
-		display: none;
-	}
+.nocturne-bg a,
+.nocturne-bg button,
+.nocturne-bg summary,
+.nocturne-bg [role='button'] {
+	cursor: url('/cursor/pointer.png') 11 0, pointer;
 }
 
 /* Cursor-following spotlight over the tech grid. */
@@ -291,12 +282,6 @@
 }
 .tech-spotlight:hover .tech-spotlight-glow {
 	opacity: 1;
-}
-
-/* Neumorphic (soft-UI) card — dark mode. */
-.neu-card {
-	border-radius: 30px;
-	background: #1a1a1a;
 }
 
 /* Cards. */

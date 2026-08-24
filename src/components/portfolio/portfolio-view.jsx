@@ -3,7 +3,6 @@
 import { useEffect, useRef } from 'react'
 import Lenis from 'lenis'
 import { animate, createScope, utils } from 'animejs'
-import CursorGlow from './cursor-glow'
 import Introduce from './introduce'
 import Projects from './projects'
 import Companies from './companies'
@@ -104,7 +103,6 @@ export default function PortfolioView({
 			id="scroll-container"
 			className="nocturne-bg relative min-h-screen"
 		>
-			<CursorGlow />
 			<Introduce content={content} tech={tech} cv={cv} />
 			<Projects items={projects} locale={locale} />
 			<Companies items={companies} locale={locale} />

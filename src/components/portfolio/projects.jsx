@@ -63,7 +63,7 @@ function ProjectStack({ items }) {
 
 function ProjectCard({ item }) {
 	return (
-		<article className="container_item neu-card flex h-[80vh] w-full flex-col p-5 opacity-0 shadow-[0_-1px_0_0_rgba(255,255,255,0.06),0_24px_60px_-24px_rgba(0,0,0,0.8)]">
+		<article className="container_item flex h-[80vh] w-full flex-col bg-black p-5 opacity-0 shadow-[0_-1px_0_0_rgba(255,255,255,0.06),0_24px_60px_-24px_rgba(0,0,0,0.8)]">
 			{/* Card spans the full width; its contents stay on a centred measure. */}
 			<header className="mx-auto flex w-full max-w-[960px] shrink-0 items-center gap-4">
 				<span className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[color:var(--color-text)]/5">
