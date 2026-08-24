@@ -4,7 +4,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { defaultContent, defaultTechStack } from '@/lib/portfolio-defaults'
 import CvDialog from './cv-dialog'
-import TechGrid from './tech-grid'
+import TechGridSwitch from './tech-grid-switch'
 
 export default function Introduce({ content, tech, cv }) {
 	const c = content || defaultContent
@@ -55,7 +55,7 @@ export default function Introduce({ content, tech, cv }) {
 				<span className="kicker">
 					{c.tech_heading || defaultContent.tech_heading}
 				</span>
-				<TechGrid items={techItems} />
+				<TechGridSwitch items={techItems} />
 				<CvDialog url={cv?.url} />
 			</div>
 
