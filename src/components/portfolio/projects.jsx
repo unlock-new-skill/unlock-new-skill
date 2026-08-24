@@ -1,15 +1,18 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { ChevronDown, FolderGit2 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { FolderGit2 } from 'lucide-react'
 
 const T = {
 	vi: { kicker: 'Dự án', heading: 'Dự án gần đây' },
 	en: { kicker: 'Work', heading: 'Recent Projects' }
 }
+
+/** How much a card shrinks / dims once the next one has fully covered it. */
+const SCALE_RANGE = 0.08
+const OPACITY_RANGE = 0.2
 
 export default function Projects({ items, locale = 'vi' }) {
 	// Hide the whole section when there are no projects in the DB.
@@ -25,28 +28,40 @@ export default function Projects({ items, locale = 'vi' }) {
 				</h2>
 			</div>
 
-			<div className="mx-auto flex max-w-[960px] flex-col gap-6 px-6">
-				{items.map(item => (
-					<ProjectAccordion key={item.id || item.name} item={item} />
-				))}
-			</div>
+			<ProjectStack items={items} />
 		</div>
 	)
 }
 
-function ProjectAccordion({ item }) {
-	const [open, setOpen] = useState(false)
-	const panelId = `project-panel-${item.id || slugify(item.name)}`
+function ProjectStack({ items }) {
+	const wrappers = useStackDepth(items.length)
 
 	return (
-		<div className="container_item neu-card w-full p-0 opacity-0">
-			<button
-				type="button"
-				aria-expanded={open}
-				aria-controls={panelId}
-				onClick={() => setOpen(v => !v)}
-				className="flex w-full items-center gap-4 p-5 text-left"
-			>
+		<div className="mx-auto flex max-w-[960px] flex-col px-6">
+			{items.map((item, index) => (
+				<div
+					key={item.id || item.name}
+					ref={el => {
+						wrappers.current[index] = el
+					}}
+					className="sticky mb-8 last:mb-0"
+					style={{ top: `calc(4rem + ${index * 10}px)` }}
+				>
+					{/* Scale layer: owned by the scroll handler, so it never fights
+					    the one-shot reveal animation running on .container_item. */}
+					<div className="origin-top will-change-transform">
+						<ProjectCard item={item} />
+					</div>
+				</div>
+			))}
+		</div>
+	)
+}
+
+function ProjectCard({ item }) {
+	return (
+		<article className="container_item neu-card w-full p-5 opacity-0 shadow-[0_-1px_0_0_rgba(255,255,255,0.06),0_24px_60px_-24px_rgba(0,0,0,0.8)]">
+			<header className="flex items-center gap-4">
 				<span className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[color:var(--color-text)]/5">
 					{item.image_url ? (
 						<Image
@@ -65,28 +80,12 @@ function ProjectAccordion({ item }) {
 				</span>
 
 				<span className="flex min-w-0 flex-col gap-1">
-					{item.tags?.[0] && (
-						<span className="card-kicker">{item.tags[0]}</span>
-					)}
+					{item.tags?.[0] && <span className="card-kicker">{item.tags[0]}</span>}
 					<span className="card-title text-xl">{item.name}</span>
 				</span>
+			</header>
 
-				<ChevronDown
-					aria-hidden="true"
-					className={cn(
-						'ml-auto size-5 shrink-0 transition-transform duration-300',
-						open && 'rotate-180'
-					)}
-				/>
-			</button>
-
-			<div
-				id={panelId}
-				className={cn(
-					'flex-col gap-4 border-t border-[color:var(--color-divider)] px-5 py-5',
-					open ? 'flex' : 'hidden'
-				)}
-			>
+			<div className="mt-5 flex flex-col gap-4 border-t border-[color:var(--color-divider)] pt-5">
 				{item.description_html ? (
 					<div
 						className="text-sm leading-relaxed text-[color:var(--color-text)]/80 [&_a]:text-[color:var(--color-accent)] [&_h2]:mt-2 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mt-2 [&_h3]:font-semibold [&_img]:my-2 [&_img]:rounded-md [&_li]:ml-4 [&_ol]:list-decimal [&_ul]:list-disc"
@@ -115,12 +114,65 @@ function ProjectAccordion({ item }) {
 					</div>
 				)}
 			</div>
-		</div>
+		</article>
 	)
 }
 
-function slugify(value = '') {
-	return value.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+/**
+ * Shrinks + dims each sticky card as the following one slides over it.
+ * Measurements read layout values (offsetHeight) and the untransformed sticky
+ * wrappers, so the transform written to the child can't feed back into them.
+ */
+function useStackDepth(count) {
+	const wrappers = useRef([])
+
+	useEffect(() => {
+		if (count < 2) return undefined
+		if (window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+			return undefined
+
+		let rafId = 0
+
+		const update = () => {
+			rafId = 0
+			const els = wrappers.current
+			for (let i = 0; i < els.length - 1; i += 1) {
+				const el = els[i]
+				const next = els[i + 1]
+				const layer = el?.firstElementChild
+				if (!el || !next || !layer) continue
+
+				const height = el.offsetHeight || 1
+				const bottom = el.getBoundingClientRect().top + height
+				const covered = clamp(
+					(bottom - next.getBoundingClientRect().top) / height
+				)
+
+				layer.style.transform = `scale(${1 - covered * SCALE_RANGE})`
+				layer.style.opacity = `${1 - covered * OPACITY_RANGE}`
+			}
+		}
+
+		const onScroll = () => {
+			if (!rafId) rafId = requestAnimationFrame(update)
+		}
+
+		update()
+		window.addEventListener('scroll', onScroll, { passive: true })
+		window.addEventListener('resize', onScroll)
+
+		return () => {
+			cancelAnimationFrame(rafId)
+			window.removeEventListener('scroll', onScroll)
+			window.removeEventListener('resize', onScroll)
+		}
+	}, [count])
+
+	return wrappers
+}
+
+function clamp(value, min = 0, max = 1) {
+	return Math.min(max, Math.max(min, value))
 }
 
 function prettyHost(url) {
