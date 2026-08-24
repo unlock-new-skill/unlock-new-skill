@@ -37,7 +37,7 @@ function ProjectStack({ items }) {
 	const wrappers = useStackDepth(items.length)
 
 	return (
-		<div className="flex w-full flex-col px-6">
+		<div className="flex w-full flex-col">
 			{items.map((item, index) => (
 				// Fixed-height wrapper: its height is the scroll travel each card
 				// gets to stay pinned. A card sized to its own content leaves no
