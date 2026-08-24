@@ -1,6 +1,8 @@
 // Map Prisma rows (camelCase columns) to the snake_case view shape the
 // portfolio components and admin forms already use.
 
+import { normaliseProjectKind } from './project-kinds'
+
 export function toContentView(row) {
 	if (!row) return null
 	return {
@@ -32,6 +34,7 @@ export function toTechView(row) {
 export function toProjectView(row) {
 	return {
 		id: row.id,
+		kind: normaliseProjectKind(row.kind),
 		name: row.name,
 		name_en: row.nameEn,
 		description: row.description,

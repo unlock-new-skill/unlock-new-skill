@@ -1,14 +1,31 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { FolderGit2 } from 'lucide-react'
+import {
+	DEFAULT_PROJECT_KIND,
+	PROJECT_KINDS,
+	PROJECT_KIND_LABELS,
+	normaliseProjectKind
+} from '@/lib/project-kinds'
 
 const T = {
-	vi: { kicker: 'Dự án', heading: 'Dự án gần đây' },
-	en: { kicker: 'Work', heading: 'Recent Projects' }
+	vi: {
+		kicker: 'Dự án',
+		heading: 'Dự án gần đây',
+		empty: 'Chưa có dự án nào.'
+	},
+	en: {
+		kicker: 'Work',
+		heading: 'Recent Projects',
+		empty: 'No projects yet.'
+	}
 }
+
+// Company first — it is the tab the section opens on.
+const TAB_ORDER = [PROJECT_KINDS.COMPANY, PROJECT_KINDS.PERSONAL]
 
 /** How much a card shrinks once the next one has fully covered it. */
 const SCALE_RANGE = 0.08
@@ -21,9 +38,32 @@ const SCALE_RANGE = 0.08
 const FADE_SPAN = 0.5
 
 export default function Projects({ items, locale = 'vi' }) {
+	const t = T[locale] || T.vi
+	const labels = PROJECT_KIND_LABELS[locale] || PROJECT_KIND_LABELS.vi
+
+	const byKind = useMemo(() => {
+		const groups = {
+			[PROJECT_KINDS.COMPANY]: [],
+			[PROJECT_KINDS.PERSONAL]: []
+		}
+		for (const item of items || []) {
+			groups[normaliseProjectKind(item.kind)].push(item)
+		}
+		return groups
+	}, [items])
+
+	// Open on company projects, unless that tab is empty and the other is not.
+	const [active, setActive] = useState(() =>
+		byKind[DEFAULT_PROJECT_KIND].length === 0 &&
+		byKind[PROJECT_KINDS.PERSONAL].length > 0
+			? PROJECT_KINDS.PERSONAL
+			: DEFAULT_PROJECT_KIND
+	)
+
 	// Hide the whole section when there are no projects in the DB.
 	if (!items?.length) return null
-	const t = T[locale] || T.vi
+
+	const shown = byKind[active]
 
 	return (
 		<div className="py-16">
@@ -32,9 +72,43 @@ export default function Projects({ items, locale = 'vi' }) {
 				<h2 className="text-center text-[2.4rem] font-bold md:text-[3.2rem]">
 					{t.heading}
 				</h2>
+
+				<div
+					role="tablist"
+					aria-label={t.heading}
+					className="mt-4 flex gap-1 rounded-full border border-[color:var(--color-divider)] p-1"
+				>
+					{TAB_ORDER.map(kind => (
+						<button
+							key={kind}
+							type="button"
+							role="tab"
+							aria-selected={active === kind}
+							onClick={() => setActive(kind)}
+							className={`rounded-full px-5 py-2 text-sm transition ${
+								active === kind
+									? 'bg-[color:var(--color-accent)] text-black'
+									: 'text-[color:var(--color-text)]/70 hover:text-[color:var(--color-text)]'
+							}`}
+						>
+							{labels[kind]}
+							<span className="ml-2 opacity-60">
+								{byKind[kind].length}
+							</span>
+						</button>
+					))}
+				</div>
 			</div>
 
-			<ProjectStack items={items} />
+			{shown.length === 0 ? (
+				<p className="py-10 text-center text-sm text-[color:var(--color-text)]/60">
+					{t.empty}
+				</p>
+			) : (
+				// Remount per tab: the stack keeps per-card refs and reveal state, so
+				// swapping the list under it would leave stale entries behind.
+				<ProjectStack key={active} items={shown} />
+			)}
 		</div>
 	)
 }
@@ -56,8 +130,7 @@ function ProjectStack({ items }) {
 					className="sticky h-[88vh]"
 					style={{ top: `calc(2rem + ${index * 12}px)` }}
 				>
-					{/* Scale layer: owned by the scroll handler, so it never fights
-					    the one-shot reveal animation running on .container_item. */}
+					{/* Scale + fade layer, owned by the scroll handler. */}
 					<div className="origin-top will-change-transform">
 						<ProjectCard item={item} />
 					</div>
@@ -69,7 +142,11 @@ function ProjectStack({ items }) {
 
 function ProjectCard({ item }) {
 	return (
-		<article className="container_item flex h-[80vh] w-full flex-col p-5 opacity-0">
+		// Cards fade in on mount — and again on every tab switch, since the stack
+		// remounts. They deliberately carry no `.container_item`: that class is
+		// wired to a reveal observer that only runs once, so a card mounted by a
+		// later tab switch would stay at opacity 0 forever.
+		<article className="project_card flex h-[80vh] w-full animate-in flex-col p-5 duration-700 fade-in">
 			{/* Card spans the full width; its contents stay on a centred measure. */}
 			<header className="mx-auto flex w-full max-w-[960px] shrink-0 items-center gap-4">
 				<span className="relative flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[color:var(--color-text)]/5">
@@ -90,7 +167,9 @@ function ProjectCard({ item }) {
 				</span>
 
 				<span className="flex min-w-0 flex-col gap-1">
-					{item.tags?.[0] && <span className="card-kicker">{item.tags[0]}</span>}
+					{item.tags?.[0] && (
+						<span className="card-kicker">{item.tags[0]}</span>
+					)}
 					<span className="card-title text-xl">{item.name}</span>
 				</span>
 			</header>
@@ -101,7 +180,9 @@ function ProjectCard({ item }) {
 				{item.description_html ? (
 					<div
 						className="text-sm leading-relaxed text-[color:var(--color-text)]/80 [&_a]:text-[color:var(--color-accent)] [&_h2]:mt-2 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mt-2 [&_h3]:font-semibold [&_img]:my-2 [&_img]:rounded-md [&_li]:ml-4 [&_ol]:list-decimal [&_ul]:list-disc"
-						dangerouslySetInnerHTML={{ __html: item.description_html }}
+						dangerouslySetInnerHTML={{
+							__html: item.description_html
+						}}
 					/>
 				) : (
 					item.description && (
@@ -162,7 +243,9 @@ function useStackDepth(count) {
 				// Overlap can't drive the fade: the wrappers are contiguous, so it
 				// stays at zero until this card pins, by which point the next one is
 				// already across it. Track that card's climb up the viewport instead.
-				const fade = clamp((viewport - nextTop) / (viewport * FADE_SPAN))
+				const fade = clamp(
+					(viewport - nextTop) / (viewport * FADE_SPAN)
+				)
 
 				layer.style.transform = `scale(${1 - covered * SCALE_RANGE})`
 				layer.style.opacity = `${1 - fade}`

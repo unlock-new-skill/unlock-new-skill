@@ -7,6 +7,11 @@ import { Label } from '@/components/ui/label'
 import ActionForm from '@/components/admin/action-form'
 import R2Upload from '@/components/admin/r2-upload'
 import RichTextField from '@/components/admin/rich-text-field'
+import {
+	DEFAULT_PROJECT_KIND,
+	PROJECT_KINDS,
+	PROJECT_KIND_LABELS
+} from '@/lib/project-kinds'
 
 export default async function AdminProjectsPage() {
 	const list = await getProjectList()
@@ -27,7 +32,10 @@ export default async function AdminProjectsPage() {
 						<div className="grid gap-3 sm:grid-cols-2">
 							<div className="grid gap-2">
 								<Label>Tên (VI / EN)</Label>
-								<Input name="name" defaultValue={p.name || ''} />
+								<Input
+									name="name"
+									defaultValue={p.name || ''}
+								/>
 								<Input
 									name="name_en"
 									defaultValue={p.name_en || ''}
@@ -60,14 +68,16 @@ export default async function AdminProjectsPage() {
 							/>
 						</div>
 						<div className="grid gap-2">
-							<Label>Tags (mỗi dòng 1 tag, tag đầu = nhãn card)</Label>
+							<Label>
+								Tags (mỗi dòng 1 tag, tag đầu = nhãn card)
+							</Label>
 							<Textarea
 								name="tags"
 								rows={2}
 								defaultValue={(p.tags || []).join('\n')}
 							/>
 						</div>
-						<div className="grid gap-3 sm:grid-cols-[1fr_120px]">
+						<div className="grid gap-3 sm:grid-cols-[1fr_120px_180px]">
 							<div className="grid gap-2">
 								<Label>Links (mỗi dòng 1 URL)</Label>
 								<Textarea
@@ -78,7 +88,36 @@ export default async function AdminProjectsPage() {
 							</div>
 							<div className="grid gap-2">
 								<Label>Thứ tự</Label>
-								<Input name="sort_order" type="number" defaultValue={p.sort_order ?? 0} />
+								<Input
+									name="sort_order"
+									type="number"
+									defaultValue={p.sort_order ?? 0}
+								/>
+							</div>
+							<div className="grid gap-2">
+								<Label>Phân loại</Label>
+								<select
+									name="kind"
+									defaultValue={
+										p.kind || DEFAULT_PROJECT_KIND
+									}
+									className="h-10 rounded-md border border-zinc-800 bg-transparent px-3 text-sm"
+								>
+									<option value={PROJECT_KINDS.COMPANY}>
+										{
+											PROJECT_KIND_LABELS.vi[
+												PROJECT_KINDS.COMPANY
+											]
+										}
+									</option>
+									<option value={PROJECT_KINDS.PERSONAL}>
+										{
+											PROJECT_KIND_LABELS.vi[
+												PROJECT_KINDS.PERSONAL
+											]
+										}
+									</option>
+								</select>
 							</div>
 						</div>
 						<div className="flex gap-2">
@@ -109,7 +148,11 @@ export default async function AdminProjectsPage() {
 					</div>
 					<div className="grid gap-2">
 						<Label>Ảnh (upload / URL)</Label>
-						<R2Upload urlName="image_url" keyName="image_key" kind="image" />
+						<R2Upload
+							urlName="image_url"
+							keyName="image_key"
+							kind="image"
+						/>
 					</div>
 				</div>
 				<div className="grid gap-2">
@@ -124,14 +167,33 @@ export default async function AdminProjectsPage() {
 					<Label>Tags (mỗi dòng 1 tag, tag đầu = nhãn card)</Label>
 					<Textarea name="tags" rows={2} />
 				</div>
-				<div className="grid gap-3 sm:grid-cols-[1fr_120px]">
+				<div className="grid gap-3 sm:grid-cols-[1fr_120px_180px]">
 					<div className="grid gap-2">
 						<Label>Links (mỗi dòng 1 URL)</Label>
 						<Textarea name="urls" rows={2} />
 					</div>
 					<div className="grid gap-2">
 						<Label>Thứ tự</Label>
-						<Input name="sort_order" type="number" defaultValue={list.length + 1} />
+						<Input
+							name="sort_order"
+							type="number"
+							defaultValue={list.length + 1}
+						/>
+					</div>
+					<div className="grid gap-2">
+						<Label>Phân loại</Label>
+						<select
+							name="kind"
+							defaultValue={DEFAULT_PROJECT_KIND}
+							className="h-10 rounded-md border border-zinc-800 bg-transparent px-3 text-sm"
+						>
+							<option value={PROJECT_KINDS.COMPANY}>
+								{PROJECT_KIND_LABELS.vi[PROJECT_KINDS.COMPANY]}
+							</option>
+							<option value={PROJECT_KINDS.PERSONAL}>
+								{PROJECT_KIND_LABELS.vi[PROJECT_KINDS.PERSONAL]}
+							</option>
+						</select>
 					</div>
 				</div>
 				<div>

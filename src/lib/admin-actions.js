@@ -4,6 +4,7 @@ import { revalidatePath, revalidateTag } from 'next/cache'
 import { prisma } from './prisma'
 import { PORTFOLIO_TAG } from './content'
 import { deleteObject } from './r2'
+import { normaliseProjectKind } from './project-kinds'
 
 function revalidateSite(...paths) {
 	// Purge the cached homepage data (ISR on-demand) + refresh the admin page.
@@ -95,6 +96,7 @@ export async function deleteTech(formData) {
 export async function addProject(_prev, formData) {
 	await prisma.project.create({
 		data: {
+			kind: normaliseProjectKind(formData.get('kind')),
 			name: formData.get('name'),
 			nameEn: str(formData, 'name_en'),
 			description: formData.get('description'),
@@ -123,6 +125,7 @@ export async function updateProject(_prev, formData) {
 	await prisma.project.update({
 		where: { id },
 		data: {
+			kind: normaliseProjectKind(formData.get('kind')),
 			name: formData.get('name'),
 			nameEn: str(formData, 'name_en'),
 			description: formData.get('description'),

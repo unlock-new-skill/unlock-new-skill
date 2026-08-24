@@ -64,20 +64,18 @@ export default function PortfolioView({
 		})
 
 		// --- Reveal-once on scroll (stays visible after) ---
+		// Company cards only. Project cards mount and remount with the tab
+		// switcher, which a one-shot observer set up here could never catch.
 		const revealed = new WeakSet()
 		const io = new IntersectionObserver(
 			entries => {
 				for (const entry of entries) {
-					if (!entry.isIntersecting || revealed.has(entry.target)) continue
+					if (!entry.isIntersecting || revealed.has(entry.target))
+						continue
 					revealed.add(entry.target)
-					// Project cards fade only — they are pinned in a sticky stack, so
-					// a slide would fight the position the scroll handler gives them.
-					const isProject = entry.target.classList.contains('container_item')
 					animate(entry.target, {
 						opacity: { from: 0, to: 1 },
-						translateY: isProject
-							? { from: '0px', to: '0px' }
-							: { from: '40px', to: '0px' },
+						translateY: { from: '40px', to: '0px' },
 						ease: 'outExpo',
 						duration: 1000
 					})
@@ -86,7 +84,6 @@ export default function PortfolioView({
 			},
 			{ threshold: 0.2 }
 		)
-		utils.$('.container_item').forEach(el => io.observe(el))
 		utils.$('.company_item').forEach(el => io.observe(el))
 
 		return () => {
@@ -106,7 +103,10 @@ export default function PortfolioView({
 			<Introduce content={content} tech={tech} cv={cv} />
 			<Projects items={projects} locale={locale} />
 			<Companies items={companies} locale={locale} />
-			<SiteFooter phone={content?.phone} facebookUrl={content?.facebook_url} />
+			<SiteFooter
+				phone={content?.phone}
+				facebookUrl={content?.facebook_url}
+			/>
 		</div>
 	)
 }

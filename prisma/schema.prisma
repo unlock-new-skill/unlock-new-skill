@@ -39,8 +39,14 @@ model TechStack {
   @@map("tech_stack")
 }
 
+enum ProjectKind {
+  COMPANY
+  PERSONAL
+}
+
 model Project {
   id          String   @id @default(cuid())
+  kind              ProjectKind @default(COMPANY) // which tab the card shows under
   name              String
   nameEn            String?
   description       String? // legacy/plain fallback for descriptionHtml
