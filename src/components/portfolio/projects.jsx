@@ -10,9 +10,15 @@ const T = {
 	en: { kicker: 'Work', heading: 'Recent Projects' }
 }
 
-/** How much a card shrinks / dims once the next one has fully covered it. */
+/** How much a card shrinks once the next one has fully covered it. */
 const SCALE_RANGE = 0.08
-const OPACITY_RANGE = 0.2
+/**
+ * Cards are transparent, so a covered card would otherwise print its text over
+ * the one sliding across it. Fading it right out is what keeps the overlap
+ * readable; the exponent front-loads the fade so it clears before the incoming
+ * card reaches the text underneath.
+ */
+const FADE_EXPONENT = 0.6
 
 export default function Projects({ items, locale = 'vi' }) {
 	// Hide the whole section when there are no projects in the DB.
@@ -155,7 +161,7 @@ function useStackDepth(count) {
 				)
 
 				layer.style.transform = `scale(${1 - covered * SCALE_RANGE})`
-				layer.style.opacity = `${1 - covered * OPACITY_RANGE}`
+				layer.style.opacity = `${1 - covered ** FADE_EXPONENT}`
 			}
 		}
 
