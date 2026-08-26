@@ -67,16 +67,21 @@ export default function Projects({ items, locale = 'vi' }) {
 
 	return (
 		<div className="py-16">
-			<div className="mb-10 flex flex-col items-center gap-3">
+			<div className="flex flex-col items-center gap-3">
 				<span className="kicker">{t.kicker}</span>
 				<h2 className="text-center text-[2.4rem] font-bold md:text-[3.2rem]">
 					{t.heading}
 				</h2>
+			</div>
 
+			{/* Direct child of the section so its sticky containing block covers the
+			    whole card stack: the switcher stays reachable until the last card
+			    has scrolled past. Sits above the cards, which pin lower down. */}
+			<div className="sticky top-4 z-20 mb-10 mt-4 flex justify-center">
 				<div
 					role="tablist"
 					aria-label={t.heading}
-					className="mt-4 flex gap-1 rounded-full border border-[color:var(--color-divider)] p-1"
+					className="flex gap-1 rounded-full border border-[color:var(--color-divider)] bg-[color-mix(in_srgb,var(--color-bg)_82%,transparent)] p-1 backdrop-blur"
 				>
 					{TAB_ORDER.map(kind => (
 						<button
@@ -127,8 +132,9 @@ function ProjectStack({ items }) {
 					ref={el => {
 						wrappers.current[index] = el
 					}}
+					// Pinned below the sticky tab switcher, not under it.
 					className="sticky h-[88vh]"
-					style={{ top: `calc(2rem + ${index * 12}px)` }}
+					style={{ top: `calc(5rem + ${index * 12}px)` }}
 				>
 					{/* Scale + fade layer, owned by the scroll handler. */}
 					<div className="origin-top will-change-transform">
