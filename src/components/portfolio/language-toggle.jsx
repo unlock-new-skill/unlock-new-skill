@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 
 const LOCALES = ['vi', 'en']
 
-/** Fixed VI/EN switch — sets the `locale` cookie and refreshes (server picks the language). */
+/** VI/EN switch — sets the `locale` cookie and refreshes (server picks the language). */
 export default function LanguageToggle({ current }) {
 	const router = useRouter()
 
@@ -15,7 +15,7 @@ export default function LanguageToggle({ current }) {
 	}
 
 	return (
-		<div className="fixed right-4 top-4 z-50 flex overflow-hidden rounded-md border border-[color:var(--color-divider)] bg-[color:var(--color-surface)] text-xs">
+		<div className="flex overflow-hidden rounded-md border border-[color:var(--color-divider)] bg-[color:var(--color-surface)] text-xs">
 			{LOCALES.map(l => (
 				<button
 					key={l}

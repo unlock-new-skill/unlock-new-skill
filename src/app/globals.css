@@ -265,6 +265,11 @@
 .nocturne-bg [role='button'] {
 	cursor: url('/cursor/pointer.png') 11 0, pointer;
 }
+/* Text fields keep the caret cursor — a pencil there hides the insertion point. */
+.nocturne-bg textarea,
+.nocturne-bg input[type='text'] {
+	cursor: text;
+}
 
 /* Cursor-following spotlight over the tech grid. */
 .tech-spotlight-glow {
@@ -347,4 +352,166 @@
 .tag-outline {
 	border: 1px solid var(--color-accent);
 	color: var(--color-accent);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Rendered markdown (tools/markdown-viewer). Tailwind Typography isn't in the
+   build, so the reading styles live here as one scoped block.
+   ══════════════════════════════════════════════════════════════════════════ */
+.md-body {
+	font-size: 15px;
+	line-height: 1.75;
+	color: var(--color-text);
+	overflow-wrap: anywhere;
+}
+.md-body > *:first-child {
+	margin-top: 0;
+}
+.md-body > *:last-child {
+	margin-bottom: 0;
+}
+.md-body h1,
+.md-body h2,
+.md-body h3,
+.md-body h4,
+.md-body h5,
+.md-body h6 {
+	margin: 2em 0 0.7em;
+	font-weight: 600;
+	line-height: 1.25;
+	scroll-margin-top: 1rem;
+}
+.md-body h1 {
+	font-size: 1.9em;
+	letter-spacing: -0.01em;
+}
+.md-body h2 {
+	font-size: 1.45em;
+	padding-bottom: 0.3em;
+	border-bottom: 1px solid var(--color-divider);
+}
+.md-body h3 {
+	font-size: 1.2em;
+}
+.md-body h4 {
+	font-size: 1.05em;
+}
+.md-body h5,
+.md-body h6 {
+	font-size: 0.95em;
+	color: color-mix(in srgb, var(--color-text) 75%, transparent);
+}
+.md-body p {
+	margin: 0 0 1.1em;
+}
+.md-body a {
+	color: var(--color-accent-2);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+.md-body a:hover {
+	color: var(--color-accent);
+}
+.md-body strong {
+	font-weight: 600;
+}
+.md-body ul,
+.md-body ol {
+	margin: 0 0 1.1em;
+	padding-left: 1.5em;
+}
+.md-body ul {
+	list-style: disc;
+}
+.md-body ol {
+	list-style: decimal;
+}
+.md-body li {
+	margin: 0.35em 0;
+}
+.md-body li::marker {
+	color: color-mix(in srgb, var(--color-accent) 80%, transparent);
+}
+.md-body li > ul,
+.md-body li > ol {
+	margin: 0.35em 0 0;
+}
+/* GFM task lists: the parser emits a bare checkbox as the first list child. */
+.md-body li > input[type='checkbox'] {
+	margin-right: 0.5em;
+	accent-color: var(--color-accent);
+}
+.md-body blockquote {
+	margin: 0 0 1.1em;
+	padding: 0.2em 0 0.2em 1.1em;
+	border-left: 3px solid var(--color-accent);
+	color: color-mix(in srgb, var(--color-text) 78%, transparent);
+}
+.md-body hr {
+	height: 1px;
+	border: 0;
+	margin: 2em 0;
+	background: var(--color-divider);
+}
+.md-body code {
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 0.87em;
+	padding: 0.15em 0.4em;
+	border-radius: var(--radius-sm);
+	background: var(--color-neutral-900);
+	color: var(--color-accent-100);
+}
+.md-body pre {
+	margin: 0 0 1.3em;
+	padding: var(--space-6);
+	overflow-x: auto;
+	border-radius: var(--radius-md);
+	border: 1px solid var(--color-divider);
+	background: #16181a;
+}
+.md-body pre code {
+	padding: 0;
+	background: transparent;
+	color: inherit;
+	font-size: 0.85em;
+	line-height: 1.65;
+}
+.md-body table {
+	width: 100%;
+	margin: 0 0 1.3em;
+	border-collapse: collapse;
+	font-size: 0.92em;
+	display: block;
+	overflow-x: auto;
+}
+.md-body th,
+.md-body td {
+	padding: 0.5em 0.85em;
+	border: 1px solid var(--color-divider);
+	text-align: left;
+}
+.md-body th {
+	background: var(--color-neutral-900);
+	font-weight: 600;
+}
+.md-body img {
+	max-width: 100%;
+	height: auto;
+	border-radius: var(--radius-md);
+}
+.md-body kbd {
+	font-size: 0.82em;
+	padding: 0.1em 0.45em;
+	border-radius: var(--radius-sm);
+	border: 1px solid var(--color-neutral-700);
+	background: var(--color-neutral-900);
+}
+.md-body details {
+	margin: 0 0 1.1em;
+	padding: var(--space-4);
+	border-radius: var(--radius-md);
+	background: var(--color-neutral-900);
+}
+.md-body summary {
+	font-weight: 500;
 }

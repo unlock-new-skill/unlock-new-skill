@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers'
 import { getPortfolioData } from '@/lib/content'
 import PortfolioView from '@/components/portfolio/portfolio-view'
-import LanguageToggle from '@/components/portfolio/language-toggle'
+import SiteToolbar from '@/components/portfolio/site-toolbar'
 
 export default async function Home() {
 	// Locale from cookie, Vietnamese by default.
@@ -10,7 +10,7 @@ export default async function Home() {
 
 	return (
 		<>
-			<LanguageToggle current={locale} />
+			<SiteToolbar locale={locale} />
 			<PortfolioView {...data} locale={locale} />
 		</>
 	)
