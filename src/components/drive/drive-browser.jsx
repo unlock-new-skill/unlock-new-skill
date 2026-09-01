@@ -30,6 +30,7 @@ import {
 	renameFolder,
 	deleteFolder,
 	folderStats,
+	ensureFolderTree,
 	createFileUpload,
 	confirmFile,
 	renameFile,
@@ -58,6 +59,48 @@ const PART_CONCURRENCY = 4 // parallel part uploads within one big file
 const UPLOAD_CONCURRENCY = 1
 const MAX_RETRIES = 3
 const sleep = ms => new Promise(r => setTimeout(r, ms))
+
+// --- dropped-folder walking (FileSystem Entry API) ---
+
+/** readEntries() yields at most ~100 children per call; loop until it returns none. */
+function readAllEntries(reader) {
+	return new Promise((resolve, reject) => {
+		const out = []
+		const next = () =>
+			reader.readEntries(batch => {
+				if (!batch.length) return resolve(out)
+				out.push(...batch)
+				next()
+			}, reject)
+		next()
+	})
+}
+
+const entryToFile = entry =>
+	new Promise((resolve, reject) => entry.file(resolve, reject))
+
+/**
+ * Depth-first walk of dropped entries.
+ * → { files: [{ file, path }], dirs: [path] }, path relative to the drop target
+ * ('' = the target folder itself). `dirs` includes empty folders so the mirrored
+ * tree matches the source exactly.
+ */
+async function walkEntries(entries, base = '', acc = { files: [], dirs: [] }) {
+	for (const entry of entries) {
+		if (entry.isFile) {
+			try {
+				acc.files.push({ file: await entryToFile(entry), path: base })
+			} catch {
+				// Unreadable file (permission/removed) — skip it, keep the batch alive.
+			}
+		} else if (entry.isDirectory) {
+			const path = base ? `${base}/${entry.name}` : entry.name
+			acc.dirs.push(path)
+			await walkEntries(await readAllEntries(entry.createReader()), path, acc)
+		}
+	}
+	return acc
+}
 
 /** Human-readable size. */
 function fmtSize(bytes) {
@@ -554,22 +597,28 @@ export default function DriveBrowser() {
 		else toast.error(`${done} thành công, ${failed} lỗi — xem bảng tổng kết`)
 	}
 
-	// Add files to the queue (captures the current folder per entry) and run.
-	function enqueue(fileList) {
-		const files = Array.from(fileList || [])
-		if (!files.length) return
-		const entries = files.map(f => ({
+	// Add { file, folderId } pairs to the queue and run.
+	function enqueueEntries(list) {
+		if (!list.length) return
+		const entries = list.map(({ file, folderId }) => ({
 			id: crypto.randomUUID(),
-			file: f,
-			folderId: parentId,
-			name: f.name,
-			size: f.size,
+			file,
+			folderId,
+			name: file.name,
+			size: file.size,
 			status: 'pending',
 			error: null
 		}))
 		uploadsRef.current = [...uploadsRef.current, ...entries]
 		setUploads(uploadsRef.current)
 		runQueue()
+	}
+
+	// Add files to the queue (captures the current folder per entry) and run.
+	function enqueue(fileList) {
+		enqueueEntries(
+			Array.from(fileList || []).map(file => ({ file, folderId: parentId }))
+		)
 	}
 
 	function retryUpload(id) {
@@ -602,30 +651,86 @@ export default function DriveBrowser() {
 		setUploads([])
 	}
 
-	// Files only — folders are rejected (user should zip/rar and upload the archive).
+	/**
+	 * Mirror `dirs` under the current folder, then queue `items` ([{ file, path }])
+	 * into their matching folder. `path` '' → the current folder.
+	 */
+	async function uploadIntoTree(items, dirs) {
+		const target = parentId
+		setBusy(true)
+		try {
+			const map = dirs.length
+				? await ensureFolderTree({ paths: dirs, parentId: target })
+				: {}
+			if (map?.error) throw new Error(map.error)
+			if (dirs.length) await reload() // show the new folders before uploads land
+			setBusy(false) // runQueue owns `busy` from here
+			enqueueEntries(
+				items.map(({ file, path }) => ({
+					file,
+					folderId: (path && map[path]) || target
+				}))
+			)
+		} catch (err) {
+			setBusy(false)
+			toast.error(err.message || 'Không tạo được thư mục')
+		}
+	}
+
+	// Dropped OS folders are recreated as a folder tree (every level); loose files
+	// go straight into the current folder.
+	async function uploadDroppedEntries(entries) {
+		setBusy(true)
+		try {
+			const { files, dirs } = await walkEntries(entries)
+			setBusy(false)
+			if (!files.length && !dirs.length) return
+			await uploadIntoTree(files, dirs)
+		} catch (err) {
+			setBusy(false)
+			toast.error(err.message || 'Không đọc được thư mục')
+		}
+	}
+
+	// <input webkitdirectory> exposes the tree via each file's webkitRelativePath.
+	function uploadPickedTree(fileList) {
+		const files = Array.from(fileList || [])
+		if (!files.length) return
+		const dirs = new Set()
+		const items = files.map(file => {
+			const segs = (file.webkitRelativePath || file.name).split('/')
+			segs.pop() // drop the filename
+			const path = segs.join('/')
+			if (path) dirs.add(path) // intermediates are created server-side
+			return { file, path }
+		})
+		uploadIntoTree(items, [...dirs])
+	}
+
 	function onDrop(e) {
 		e.preventDefault()
 		e.stopPropagation()
 		// Internal file-move drops are handled by folder targets; ignore here.
 		if (e.dataTransfer.types.includes(MOVE_MIME)) return
 		const items = e.dataTransfer.items
-		if (items && items.length) {
-			let hasFolder = false
-			const files = []
-			for (const it of items) {
-				if (it.webkitGetAsEntry?.()?.isDirectory) {
-					hasFolder = true
-					continue
-				}
-				const f = it.getAsFile?.()
-				if (f) files.push(f)
-			}
-			if (hasFolder)
-				toast.error('Chỉ nhận file, không nhận thư mục. Hãy nén .zip/.rar rồi upload.')
-			if (files.length) enqueue(files)
-		} else {
+		if (!items?.length) {
 			enqueue(e.dataTransfer.files)
+			return
 		}
+		// webkitGetAsEntry() must run synchronously — dataTransfer.items is emptied
+		// as soon as this handler returns, so grab everything before any await.
+		const entries = []
+		const loose = []
+		for (const it of items) {
+			const entry = it.webkitGetAsEntry?.()
+			if (entry) entries.push(entry)
+			else {
+				const f = it.getAsFile?.()
+				if (f) loose.push(f)
+			}
+		}
+		if (loose.length) enqueue(loose)
+		if (entries.length) uploadDroppedEntries(entries)
 	}
 
 	const upDone = uploads.filter(u => u.status === 'done').length
@@ -790,6 +895,20 @@ export default function DriveBrowser() {
 						>
 							+ Thư mục
 						</Button>
+						<label className="cursor-pointer rounded border border-zinc-700 px-3 py-1.5 text-sm font-medium text-zinc-200 hover:bg-zinc-800">
+							↑ Thư mục
+							<input
+								type="file"
+								multiple
+								hidden
+								webkitdirectory=""
+								directory=""
+								onChange={e => {
+									uploadPickedTree(e.target.files)
+									e.target.value = ''
+								}}
+							/>
+						</label>
 						<label className="cursor-pointer rounded bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 hover:bg-white">
 							{upActive ? `Đang tải ${upDone}/${uploads.length}` : '↑ Upload'}
 							<input
@@ -921,7 +1040,7 @@ export default function DriveBrowser() {
 						</div>
 					) : isEmpty ? (
 						<p className="grid h-64 place-items-center text-sm text-zinc-600">
-							{q ? 'Không tìm thấy.' : 'Trống. Kéo-thả file vào đây hoặc bấm Upload.'}
+							{q ? 'Không tìm thấy.' : 'Trống. Kéo-thả file hoặc thư mục vào đây, hoặc bấm Upload.'}
 						</p>
 					) : view === 'masonry' ? (
 						visibleImages.length === 0 ? (

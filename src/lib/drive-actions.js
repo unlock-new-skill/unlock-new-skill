@@ -113,13 +113,39 @@ export async function renameFolder({ id, name }) {
 	return prisma.folder.update({ where: { id }, data: { name: clean } })
 }
 
-/** Get-or-create a folder by name under a parent (for dropping OS folder trees). */
-export async function ensureFolder({ name, parentId = null }) {
+/**
+ * Get-or-create a whole folder tree in one round-trip (for dropping OS folder
+ * trees). `paths` are slash-separated and relative to `parentId`; intermediate
+ * segments are created too. Returns { [path]: folderId } for every level.
+ * Existing folders with the same name are reused, not duplicated.
+ */
+export async function ensureFolderTree({ paths = [], parentId = null }) {
 	await requireAdmin()
-	const clean = String(name || '').trim() || 'folder'
-	const existing = await findSiblingFolder(parentId, clean)
-	if (existing) return existing
-	return prisma.folder.create({ data: { name: clean, parentId } })
+	const map = {}
+	// Shallowest first so a parent is always created before its children.
+	const sorted = [...new Set(paths.filter(Boolean))].sort(
+		(a, b) => a.split('/').length - b.split('/').length
+	)
+	for (const path of sorted) {
+		let cur = parentId
+		let acc = ''
+		for (const seg of path.split('/')) {
+			const clean = seg.trim()
+			if (!clean) continue
+			acc = acc ? `${acc}/${clean}` : clean
+			if (map[acc]) {
+				cur = map[acc]
+				continue
+			}
+			const existing = await findSiblingFolder(cur, clean)
+			const folder =
+				existing ??
+				(await prisma.folder.create({ data: { name: clean, parentId: cur } }))
+			map[acc] = folder.id
+			cur = folder.id
+		}
+	}
+	return map
 }
 
 /** Recursively count files + subfolders under a folder (for the delete preview). */
