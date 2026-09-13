@@ -119,3 +119,30 @@ model FileObject {
 
   @@map("file_objects")
 }
+
+model TodoProject {
+  id        String     @id @default(cuid())
+  name      String
+  color     String?    // Hex code or color class (e.g. #3b82f6)
+  sortOrder Int        @default(0)
+  todos     TodoItem[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@map("todo_projects")
+}
+
+model TodoItem {
+  id          String      @id @default(cuid())
+  projectId   String
+  project     TodoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title       String
+  isDone      Boolean     @default(false)
+  content     String?     @db.Text // TipTap output HTML
+  sortOrder   Int         @default(0)
+  completedAt DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@map("todo_items")
+}

@@ -14,5 +14,12 @@ export const ADMIN_APPS = [
 		description: 'Quản lý file cá nhân trên Cloudflare R2',
 		href: '/admin/drive',
 		icon: '📁'
+	},
+	{
+		key: 'todo',
+		title: 'Todo List',
+		description: 'Quản lý dự án & đầu việc với Editor kiểu Notion',
+		href: '/admin/todo',
+		icon: '✅'
 	}
 ]
