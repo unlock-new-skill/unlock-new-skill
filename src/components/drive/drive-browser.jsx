@@ -185,6 +185,13 @@ export default function DriveBrowser() {
 		})
 	}, [])
 
+	// --- folder map (derived from the load-once tree) ---
+	const byId = useMemo(() => {
+		const m = new Map()
+		for (const f of allFolders) m.set(f.id, f)
+		return m
+	}, [allFolders])
+
 	// Auto-expand ancestors of active folder
 	useEffect(() => {
 		if (activeId && byId.size > 0) {
@@ -207,13 +214,7 @@ export default function DriveBrowser() {
 
 	const parentId = activeId // uploads/new folder target = current folder
 
-	// --- folder map + breadcrumb (derived from the load-once tree) ---
-	const byId = useMemo(() => {
-		const m = new Map()
-		for (const f of allFolders) m.set(f.id, f)
-		return m
-	}, [allFolders])
-
+	// --- breadcrumb ---
 	const crumbs = useMemo(() => {
 		const chain = []
 		let cur = activeId
