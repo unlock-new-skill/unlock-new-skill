@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
-import { Loader2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -40,8 +40,10 @@ import {
 	startMultipart,
 	signParts,
 	finishMultipart,
-	abortUpload
+	abortUpload,
+	cleanupFailedUpload
 } from '@/lib/drive-actions'
+import { resolveMimeType, isJunkOrHiddenFile } from '@/lib/mime'
 import FilePreview from './file-preview'
 import ImageLightbox from './image-lightbox'
 import KebabMenu from './kebab-menu'
@@ -54,9 +56,8 @@ const MULTIPART_THRESHOLD = 100 * 1024 * 1024 // 100 MB
 const PART_SIZE = 64 * 1024 * 1024 // 64 MB (S3 min part = 5 MB, except last)
 const PART_CONCURRENCY = 4 // parallel part uploads within one big file
 
-// Batch upload queue: process files one at a time (avoid blasting 500 uploads
-// at once → perf/rate issues), each with retry. Bump for parallel batches.
-const UPLOAD_CONCURRENCY = 1
+// Batch upload queue: process files concurrently (3 workers) with retry
+const UPLOAD_CONCURRENCY = 3
 const MAX_RETRIES = 3
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
@@ -64,39 +65,70 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 /** readEntries() yields at most ~100 children per call; loop until it returns none. */
 function readAllEntries(reader) {
-	return new Promise((resolve, reject) => {
+	return new Promise(resolve => {
 		const out = []
-		const next = () =>
-			reader.readEntries(batch => {
-				if (!batch.length) return resolve(out)
-				out.push(...batch)
-				next()
-			}, reject)
+		const next = () => {
+			try {
+				reader.readEntries(
+					batch => {
+						if (!batch || !batch.length) return resolve(out)
+						out.push(...batch)
+						next()
+					},
+					err => {
+						console.warn('readEntries failed, returning partial entries:', err)
+						resolve(out)
+					}
+				)
+			} catch (err) {
+				console.warn('readEntries threw, returning partial entries:', err)
+				resolve(out)
+			}
+		}
 		next()
 	})
 }
 
 const entryToFile = entry =>
-	new Promise((resolve, reject) => entry.file(resolve, reject))
+	new Promise((resolve, reject) => {
+		try {
+			entry.file(resolve, reject)
+		} catch (err) {
+			reject(err)
+		}
+	})
 
 /**
  * Depth-first walk of dropped entries.
+ * Skips hidden files / OS junk (.DS_Store, ._*, etc.)
  * → { files: [{ file, path }], dirs: [path] }, path relative to the drop target
- * ('' = the target folder itself). `dirs` includes empty folders so the mirrored
- * tree matches the source exactly.
  */
 async function walkEntries(entries, base = '', acc = { files: [], dirs: [] }) {
-	for (const entry of entries) {
+	for (const entry of entries || []) {
+		if (!entry || isJunkOrHiddenFile(entry.name)) continue
+
 		if (entry.isFile) {
 			try {
-				acc.files.push({ file: await entryToFile(entry), path: base })
-			} catch {
-				// Unreadable file (permission/removed) — skip it, keep the batch alive.
+				const f = await entryToFile(entry)
+				if (f && !isJunkOrHiddenFile(f.name)) {
+					acc.files.push({ file: f, path: base })
+				}
+			} catch (err) {
+				console.warn('Could not read entry file, skipping:', entry.name, err)
 			}
 		} else if (entry.isDirectory) {
-			const path = base ? `${base}/${entry.name}` : entry.name
-			acc.dirs.push(path)
-			await walkEntries(await readAllEntries(entry.createReader()), path, acc)
+			try {
+				const cleanName = entry.name.trim()
+				const path = base ? `${base}/${cleanName}` : cleanName
+				acc.dirs.push(path)
+				const reader = entry.createReader?.()
+				if (reader) {
+					const children = await readAllEntries(reader)
+					await walkEntries(children, path, acc)
+				}
+			} catch (err) {
+				console.warn('Could not read directory entry, skipping:', entry.name, err)
+			}
 		}
 	}
 	return acc
@@ -127,6 +159,7 @@ export default function DriveBrowser() {
 	const [uploads, setUploads] = useState([])
 	const uploadsRef = useRef([]) // mirror for the runner (holds file + folderId)
 	const runningRef = useRef(false)
+	const renderRaf = useRef(null) // throttle uploads state updates to 60fps
 	const [nameDialog, setNameDialog] = useState(null) // { mode, id, value }
 	const [deleteTarget, setDeleteTarget] = useState(null) // { type, id, name }
 	const [view, setView] = useState('grid') // 'grid' | 'masonry' | 'list'
@@ -136,8 +169,41 @@ export default function DriveBrowser() {
 	const [selectMode, setSelectMode] = useState(false) // checkbox/select mode on/off
 	const [moveOpen, setMoveOpen] = useState(false) // move-to-folder dialog
 	const [dragOverId, setDragOverId] = useState(undefined) // folder highlighted on drag (null=root)
+	const [expanded, setExpanded] = useState(() => new Set()) // expanded folder ids in tree sidebar
 	// Synchronous re-entry lock (setBusy is async → can't block a double Enter/click).
 	const submitting = useRef(false)
+
+	const toggleExpand = useCallback(id => {
+		setExpanded(prev => {
+			const next = new Set(prev)
+			if (next.has(id)) {
+				next.delete(id)
+			} else {
+				next.add(id)
+			}
+			return next
+		})
+	}, [])
+
+	// Auto-expand ancestors of active folder
+	useEffect(() => {
+		if (activeId && byId.size > 0) {
+			setExpanded(prev => {
+				const next = new Set(prev)
+				let cur = activeId
+				while (cur) {
+					const f = byId.get(cur)
+					if (!f) break
+					const parentId = f.parentId ?? null
+					if (parentId) {
+						next.add(parentId)
+					}
+					cur = parentId
+				}
+				return next
+			})
+		}
+	}, [activeId, byId])
 
 	const parentId = activeId // uploads/new folder target = current folder
 
@@ -226,7 +292,10 @@ export default function DriveBrowser() {
 			painting.current = false
 		}
 		window.addEventListener('pointerup', up)
-		return () => window.removeEventListener('pointerup', up)
+		return () => {
+			window.removeEventListener('pointerup', up)
+			if (renderRaf.current) cancelAnimationFrame(renderRaf.current)
+		}
 	}, [])
 
 	// Grow the window when the sentinel scrolls near (rootMargin preloads next page).
@@ -466,35 +535,44 @@ export default function DriveBrowser() {
 
 	// --- uploads: one file, single PUT or multipart depending on size ---
 	async function uploadSingle(file, folderId) {
+		const resolvedMime = resolveMimeType(file.name, file.type)
 		const res = await createFileUpload({
 			name: file.name,
-			type: file.type,
+			type: resolvedMime,
 			folderId
 		})
 		if (res.error) throw new Error(res.error)
+		const mimeToSend = res.mime || resolvedMime
 		const put = await fetch(res.uploadUrl, {
 			method: 'PUT',
 			body: file,
-			headers: { 'Content-Type': file.type || 'application/octet-stream' }
+			headers: { 'Content-Type': mimeToSend }
 		})
-		if (!put.ok) throw new Error(`Upload R2 thất bại (${put.status})`)
-		const saved = await confirmFile({
-			key: res.key,
-			name: file.name,
-			mime: file.type,
-			size: file.size,
-			folderId
-		})
-		if (saved.error) throw new Error(saved.error)
+		if (!put.ok) throw new Error(`Upload R2 thất bại (HTTP ${put.status})`)
+		try {
+			const saved = await confirmFile({
+				key: res.key,
+				name: file.name,
+				mime: mimeToSend,
+				size: file.size,
+				folderId
+			})
+			if (saved.error) throw new Error(saved.error)
+		} catch (err) {
+			cleanupFailedUpload({ key: res.key }).catch(() => {})
+			throw err
+		}
 	}
 
 	async function uploadMultipart(file, folderId) {
+		const resolvedMime = resolveMimeType(file.name, file.type)
 		const start = await startMultipart({
 			name: file.name,
-			type: file.type,
+			type: resolvedMime,
 			folderId
 		})
 		if (start.error) throw new Error(start.error)
+		const mimeToSend = start.mime || resolvedMime
 		const partCount = Math.ceil(file.size / PART_SIZE)
 		try {
 			const sp = await signParts({
@@ -511,7 +589,7 @@ export default function DriveBrowser() {
 					const i = next++
 					const chunk = file.slice(i * PART_SIZE, (i + 1) * PART_SIZE)
 					const put = await fetch(sp.urls[i], { method: 'PUT', body: chunk })
-					if (!put.ok) throw new Error(`Part ${i + 1} lỗi (${put.status})`)
+					if (!put.ok) throw new Error(`Part ${i + 1} lỗi (HTTP ${put.status})`)
 					const etag = put.headers.get('ETag')
 					if (!etag)
 						throw new Error('Thiếu ETag — kiểm CORS ExposeHeaders: ["ETag"]')
@@ -527,7 +605,7 @@ export default function DriveBrowser() {
 				uploadId: start.uploadId,
 				parts,
 				name: file.name,
-				mime: file.type,
+				mime: mimeToSend,
 				size: file.size,
 				folderId
 			})
@@ -557,8 +635,22 @@ export default function DriveBrowser() {
 		throw lastErr
 	}
 
-	const patchUpload = (id, patch) =>
-		setUploads(prev => prev.map(u => (u.id === id ? { ...u, ...patch } : u)))
+	const triggerUploadsSync = useCallback(() => {
+		if (renderRaf.current) return
+		renderRaf.current = requestAnimationFrame(() => {
+			renderRaf.current = null
+			setUploads([...uploadsRef.current])
+		})
+	}, [])
+
+	const patchUpload = useCallback(
+		(id, patch) => {
+			const target = uploadsRef.current.find(u => u.id === id)
+			if (target) Object.assign(target, patch)
+			triggerUploadsSync()
+		},
+		[triggerUploadsSync]
+	)
 
 	// Concurrency-limited runner over the pending queue in uploadsRef.
 	async function runQueue() {
@@ -570,7 +662,7 @@ export default function DriveBrowser() {
 			for (;;) {
 				const entry = uploadsRef.current.find(u => u.status === 'pending')
 				if (!entry) return
-				entry.status = 'uploading' // mark in ref so other workers skip it
+				entry.status = 'uploading' // mark in ref synchronously so other concurrent workers skip it
 				patchUpload(entry.id, { status: 'uploading', error: null })
 				try {
 					await uploadWithRetry(entry)
@@ -589,6 +681,11 @@ export default function DriveBrowser() {
 
 		runningRef.current = false
 		setBusy(false)
+		if (renderRaf.current) {
+			cancelAnimationFrame(renderRaf.current)
+			renderRaf.current = null
+		}
+		setUploads([...uploadsRef.current])
 		await loadLevel()
 
 		const failed = uploadsRef.current.filter(u => u.status === 'error').length
@@ -616,8 +713,12 @@ export default function DriveBrowser() {
 
 	// Add files to the queue (captures the current folder per entry) and run.
 	function enqueue(fileList) {
+		const cleanFiles = Array.from(fileList || []).filter(
+			file => !isJunkOrHiddenFile(file.name)
+		)
+		if (!cleanFiles.length) return
 		enqueueEntries(
-			Array.from(fileList || []).map(file => ({ file, folderId: parentId }))
+			cleanFiles.map(file => ({ file, folderId: parentId }))
 		)
 	}
 
@@ -694,11 +795,16 @@ export default function DriveBrowser() {
 
 	// <input webkitdirectory> exposes the tree via each file's webkitRelativePath.
 	function uploadPickedTree(fileList) {
-		const files = Array.from(fileList || [])
+		const files = Array.from(fileList || []).filter(
+			f => !isJunkOrHiddenFile(f.name)
+		)
 		if (!files.length) return
 		const dirs = new Set()
 		const items = files.map(file => {
-			const segs = (file.webkitRelativePath || file.name).split('/')
+			const segs = (file.webkitRelativePath || file.name)
+				.split(/[/\\]+/)
+				.map(s => s.trim())
+				.filter(Boolean)
 			segs.pop() // drop the filename
 			const path = segs.join('/')
 			if (path) dirs.add(path) // intermediates are created server-side
@@ -723,10 +829,11 @@ export default function DriveBrowser() {
 		const loose = []
 		for (const it of items) {
 			const entry = it.webkitGetAsEntry?.()
-			if (entry) entries.push(entry)
-			else {
+			if (entry) {
+				if (!isJunkOrHiddenFile(entry.name)) entries.push(entry)
+			} else {
 				const f = it.getAsFile?.()
-				if (f) loose.push(f)
+				if (f && !isJunkOrHiddenFile(f.name)) loose.push(f)
 			}
 		}
 		if (loose.length) enqueue(loose)
@@ -796,36 +903,64 @@ export default function DriveBrowser() {
 
 	// Recursive tree node rows (whole tree rendered once, no per-click fetch).
 	function TreeNodes({ pid, depth }) {
-		return childrenOf(pid).map(f => (
-			<div key={f.id}>
-				<div
-					onDragOver={e => onFolderDragOver(e, f.id)}
-					onDragLeave={() => setDragOverId(undefined)}
-					onDrop={e => onFolderDrop(e, f.id)}
-					className={`group flex items-center rounded pr-1 hover:bg-zinc-800 ${
-						activeId === f.id ? 'bg-zinc-800' : ''
-					} ${dragOverId === f.id ? 'ring-1 ring-blue-500' : ''}`}
-				>
-					<button
-						type="button"
-						onClick={() => setActive(f.id)}
-						style={{ paddingLeft: depth * 12 + 8 }}
-						className={`flex-1 truncate py-1 text-left text-sm ${
-							activeId === f.id ? 'text-white' : 'text-zinc-300'
-						}`}
+		return childrenOf(pid).map(f => {
+			const subfolders = childrenOf(f.id)
+			const hasChildren = subfolders.length > 0
+			const isExpanded = expanded.has(f.id)
+
+			return (
+				<div key={f.id}>
+					<div
+						onDragOver={e => onFolderDragOver(e, f.id)}
+						onDragLeave={() => setDragOverId(undefined)}
+						onDrop={e => onFolderDrop(e, f.id)}
+						className={`group flex items-center rounded pr-1 hover:bg-zinc-800 \${
+							activeId === f.id ? 'bg-zinc-800' : ''
+						} \${dragOverId === f.id ? 'ring-1 ring-blue-500' : ''}`}
+						style={{ paddingLeft: (depth - 1) * 12 + 8 }}
 					>
-						📁 {f.name}
-					</button>
-					<div className="opacity-0 group-hover:opacity-100">
-						<KebabMenu items={folderMenu(f)} />
+						{/* Toggle button or spacer */}
+						{hasChildren ? (
+							<button
+								type="button"
+								onClick={e => {
+									e.stopPropagation()
+									toggleExpand(f.id)
+								}}
+								className="mr-1 flex h-5 w-5 items-center justify-center rounded text-zinc-400 hover:bg-zinc-700 hover:text-white"
+							>
+								{isExpanded ? (
+									<ChevronDown className="h-3 w-3" />
+								) : (
+									<ChevronRight className="h-3 w-3" />
+								)}
+							</button>
+						) : (
+							<div className="mr-1 w-5" />
+						)}
+
+						<button
+							type="button"
+							onClick={() => setActive(f.id)}
+							className={`flex-1 truncate py-1 text-left text-sm \${
+								activeId === f.id ? 'text-white' : 'text-zinc-300'
+							}`}
+						>
+							📁 {f.name}
+						</button>
+						<div className="opacity-0 group-hover:opacity-100">
+							<KebabMenu items={folderMenu(f)} />
+						</div>
 					</div>
+					{hasChildren && isExpanded && (
+						<TreeNodes pid={f.id} depth={depth + 1} />
+					)}
 				</div>
-				<TreeNodes pid={f.id} depth={depth + 1} />
-			</div>
-		))
+			)
+		})
 	}
 
-	// Folder picker rows for the move-to dialog.
+// Folder picker rows for the move-to dialog.
 	function MovePicker({ pid, depth }) {
 		return childrenOf(pid).map(f => (
 			<div key={f.id}>

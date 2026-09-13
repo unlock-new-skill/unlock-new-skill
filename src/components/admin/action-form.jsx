@@ -13,15 +13,20 @@ export default function ActionForm({
 	action,
 	success = 'Đã lưu',
 	className,
+	onSuccess,
 	children
 }) {
 	const [state, formAction] = useFormState(action, null)
 
 	useEffect(() => {
 		if (!state) return
-		if (state.ok) toast.success(state.message || success)
-		else if (state.error) toast.error(state.error)
-	}, [state, success])
+		if (state.ok) {
+			toast.success(state.message || success)
+			onSuccess?.(state)
+		} else if (state.error) {
+			toast.error(state.error)
+		}
+	}, [state, success, onSuccess])
 
 	return (
 		<form action={formAction} className={className}>

@@ -3,6 +3,7 @@
 import { cookies } from 'next/headers'
 import { prisma } from './prisma'
 import { SESSION_COOKIE, verifySessionToken } from './auth'
+import { resolveMimeType } from './mime'
 import {
 	createPresignedPutUrl,
 	publicUrl,
@@ -124,14 +125,13 @@ export async function ensureFolderTree({ paths = [], parentId = null }) {
 	const map = {}
 	// Shallowest first so a parent is always created before its children.
 	const sorted = [...new Set(paths.filter(Boolean))].sort(
-		(a, b) => a.split('/').length - b.split('/').length
+		(a, b) => a.split(/[/\\]+/).length - b.split(/[/\\]+/).length
 	)
 	for (const path of sorted) {
 		let cur = parentId
 		let acc = ''
-		for (const seg of path.split('/')) {
-			const clean = seg.trim()
-			if (!clean) continue
+		const segments = path.split(/[/\\]+/).map(s => s.trim()).filter(Boolean)
+		for (const clean of segments) {
 			acc = acc ? `${acc}/${clean}` : clean
 			if (map[acc]) {
 				cur = map[acc]
@@ -143,6 +143,10 @@ export async function ensureFolderTree({ paths = [], parentId = null }) {
 				(await prisma.folder.create({ data: { name: clean, parentId: cur } }))
 			map[acc] = folder.id
 			cur = folder.id
+		}
+		// Map both the exact original path string and the normalized acc string so client lookups never fail
+		if (acc && map[acc]) {
+			map[path] = map[acc]
 		}
 	}
 	return map
@@ -199,26 +203,43 @@ export async function createFileUpload({ name, type, folderId = null }) {
 	if (!isPersonalR2Configured()) {
 		return { error: 'R2 personal chưa cấu hình (thiếu env)' }
 	}
-	const key = `drive/${crypto.randomUUID()}-${safeName(name)}`
+	const safeFileName = String(name || 'file')
+	const resolvedMime = resolveMimeType(safeFileName, type)
+	const key = `drive/${crypto.randomUUID()}-${safeName(safeFileName)}`
 	const uploadUrl = await createPresignedPutUrl(
 		key,
-		type || 'application/octet-stream',
+		resolvedMime,
 		BUCKET
 	)
-	return { uploadUrl, key, publicUrl: publicUrl(key, BUCKET) }
+	return { uploadUrl, key, mime: resolvedMime, publicUrl: publicUrl(key, BUCKET) }
 }
 
 /** Persist the file row after the browser PUT to R2 succeeds. */
 export async function confirmFile({ key, name, mime, size, folderId = null }) {
 	await requireAdmin()
 	if (!key) return { error: 'Thiếu key' }
+
+	const safeFileName = String(name || 'file')
+	const resolvedMime = resolveMimeType(safeFileName, mime)
+
+	let targetFolderId = folderId
+	if (targetFolderId) {
+		const folderExists = await prisma.folder.findUnique({
+			where: { id: targetFolderId },
+			select: { id: true }
+		})
+		if (!folderExists) {
+			targetFolderId = null
+		}
+	}
+
 	const file = await prisma.fileObject.create({
 		data: {
 			key,
-			name: String(name || 'file'),
-			mime: String(mime || 'application/octet-stream'),
+			name: safeFileName,
+			mime: resolvedMime,
 			size: Number(size) || 0,
-			folderId
+			folderId: targetFolderId
 		}
 	})
 	return withUrl(file)
@@ -234,13 +255,15 @@ export async function startMultipart({ name, type, folderId = null }) {
 	if (!isPersonalR2Configured()) {
 		return { error: 'R2 personal chưa cấu hình (thiếu env)' }
 	}
-	const key = `drive/${crypto.randomUUID()}-${safeName(name)}`
+	const safeFileName = String(name || 'file')
+	const resolvedMime = resolveMimeType(safeFileName, type)
+	const key = `drive/${crypto.randomUUID()}-${safeName(safeFileName)}`
 	const uploadId = await createMultipart(
 		key,
-		type || 'application/octet-stream',
+		resolvedMime,
 		BUCKET
 	)
-	return { key, uploadId, publicUrl: publicUrl(key, BUCKET) }
+	return { key, uploadId, mime: resolvedMime, publicUrl: publicUrl(key, BUCKET) }
 }
 
 /** Presign every part URL in one round-trip. `partCount` = ceil(size/partSize). */
@@ -269,13 +292,28 @@ export async function finishMultipart({
 	await requireAdmin()
 	if (!key || !uploadId || !parts?.length) return { error: 'Thiếu dữ liệu' }
 	await completeMultipart(key, uploadId, parts, BUCKET)
+
+	const safeFileName = String(name || 'file')
+	const resolvedMime = resolveMimeType(safeFileName, mime)
+
+	let targetFolderId = folderId
+	if (targetFolderId) {
+		const folderExists = await prisma.folder.findUnique({
+			where: { id: targetFolderId },
+			select: { id: true }
+		})
+		if (!folderExists) {
+			targetFolderId = null
+		}
+	}
+
 	const file = await prisma.fileObject.create({
 		data: {
 			key,
-			name: String(name || 'file'),
-			mime: String(mime || 'application/octet-stream'),
+			name: safeFileName,
+			mime: resolvedMime,
 			size: Number(size) || 0,
-			folderId
+			folderId: targetFolderId
 		}
 	})
 	return withUrl(file)
@@ -285,6 +323,14 @@ export async function finishMultipart({
 export async function abortUpload({ key, uploadId }) {
 	await requireAdmin()
 	await abortMultipart(key, uploadId, BUCKET)
+	return { ok: true }
+}
+
+/** Clean up an orphan R2 object if the upload PUT succeeded but confirm failed. */
+export async function cleanupFailedUpload({ key }) {
+	await requireAdmin()
+	if (!key) return { ok: true }
+	await deleteObject(key, BUCKET)
 	return { ok: true }
 }
 

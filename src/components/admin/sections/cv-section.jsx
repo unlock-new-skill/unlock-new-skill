@@ -1,69 +1,138 @@
+'use client'
+
+import { FileText, CheckCircle2, ExternalLink } from 'lucide-react'
 import { addCv, setActiveCv, deleteCv } from '@/lib/admin-actions'
-import { getCvList } from '@/lib/admin-data'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import ActionForm from '@/components/admin/action-form'
+import SubmitButton from '@/components/admin/submit-button'
+import ConfirmDeleteDialog from '@/components/admin/confirm-delete-dialog'
 import R2Upload from '@/components/admin/r2-upload'
+import { cn } from '@/lib/utils'
 
-export default async function AdminCvPage() {
-	const list = await getCvList()
-
+export default function CvSection({ items = [] }) {
 	return (
-		<div className="grid gap-8">
+		<div className="flex flex-col gap-8">
+			{/* Upload New CV Card */}
 			<ActionForm
 				action={addCv}
-				success="Đã lưu CV"
-				className="grid gap-4 rounded border border-zinc-800 p-4"
+				success="Đã tải lên và kích hoạt CV mới"
+				className="flex flex-col gap-4 rounded-xl border border-zinc-800 bg-zinc-900/40 p-5"
 			>
-				<h1 className="text-xl font-bold">Upload CV (PDF)</h1>
+				<div>
+					<h2 className="text-lg font-semibold text-zinc-100">
+						Tải lên CV (PDF)
+					</h2>
+					<p className="text-xs text-zinc-400">
+						Chọn file PDF để upload lên Cloudflare R2. File mới tải lên sẽ tự động được kích hoạt hiển thị ngoài trang chủ.
+					</p>
+				</div>
+
 				<div className="grid gap-2">
-					<Label>Chọn file PDF (upload lên R2)</Label>
+					<Label>Chọn file PDF</Label>
 					<R2Upload urlName="cv_url" keyName="cv_key" kind="pdf" />
 				</div>
-				<p className="text-xs text-zinc-500">
-					Chọn file để upload lên R2, rồi bấm Lưu. CV mới sẽ tự động hiển thị trên
-					trang chủ.
-				</p>
-				<div>
-					<Button type="submit">Lưu CV</Button>
+
+				<div className="pt-2">
+					<SubmitButton loadingText="Đang lưu CV...">
+						Lưu và hiển thị CV
+					</SubmitButton>
 				</div>
 			</ActionForm>
 
-			<div className="grid gap-2">
-				<h2 className="font-semibold">Các CV đã upload ({list.length})</h2>
-				{list.map(cv => (
-					<div
-						key={cv.id}
-						className="flex flex-wrap items-center gap-3 rounded border border-zinc-800 p-3"
-					>
-						<a
-							href={cv.url}
-							target="_blank"
-							rel="noreferrer"
-							className="flex-1 truncate underline"
-						>
-							{cv.file_name || cv.id}
-						</a>
-						{cv.is_active && <Badge>Đang hiển thị</Badge>}
-						{!cv.is_active && (
-							<form action={setActiveCv}>
-								<input type="hidden" name="id" value={cv.id} />
-								<Button variant="outline" size="sm" type="submit">
-									Đặt hiển thị
-								</Button>
-							</form>
-						)}
-						<form action={deleteCv}>
-							<input type="hidden" name="id" value={cv.id} />
-							<Button variant="destructive" size="sm" type="submit">
-								Xoá
-							</Button>
-						</form>
+			{/* Uploaded CVs List */}
+			<div className="flex flex-col gap-3">
+				<h3 className="text-base font-semibold text-zinc-200">
+					Danh sách CV đã upload ({items.length})
+				</h3>
+
+				{items.length === 0 ? (
+					<div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-zinc-800 py-12 text-center">
+						<FileText className="mb-2 h-8 w-8 text-zinc-600" />
+						<p className="text-sm text-zinc-400">Chưa có CV nào được upload.</p>
 					</div>
-				))}
-				{list.length === 0 && (
-					<p className="text-sm text-zinc-500">Chưa có CV nào được upload.</p>
+				) : (
+					<div className="grid gap-3">
+						{items.map(cv => (
+							<div
+								key={cv.id}
+								className={cn(
+									'flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4 transition-all',
+									cv.is_active
+										? 'border-emerald-500/40 bg-emerald-950/20'
+										: 'border-zinc-800 bg-zinc-900/30 hover:border-zinc-700'
+								)}
+							>
+								<div className="flex items-center gap-3 min-w-0">
+									<div
+										className={cn(
+											'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border',
+											cv.is_active
+												? 'border-emerald-500/40 bg-emerald-950/50 text-emerald-400'
+												: 'border-zinc-800 bg-zinc-900 text-zinc-400'
+										)}
+									>
+										<FileText className="h-5 w-5" />
+									</div>
+
+									<div className="min-w-0">
+										<div className="flex items-center gap-2">
+											<span className="truncate font-medium text-sm text-zinc-200">
+												{cv.file_name || 'Curriculum Vitae (PDF)'}
+											</span>
+											{cv.is_active && (
+												<Badge className="bg-emerald-600 text-white hover:bg-emerald-600 gap-1 text-[11px]">
+													<CheckCircle2 className="h-3 w-3" />
+													Đang hiển thị
+												</Badge>
+											)}
+										</div>
+										<div className="mt-0.5 flex items-center gap-3 text-xs text-zinc-500">
+											{cv.uploaded_at && (
+												<span>
+													Ngày tải:{' '}
+													{new Date(cv.uploaded_at).toLocaleDateString(
+														'vi-VN'
+													)}
+												</span>
+											)}
+											<a
+												href={cv.url}
+												target="_blank"
+												rel="noreferrer"
+												className="flex items-center gap-1 text-blue-400 hover:underline"
+											>
+												<ExternalLink className="h-3 w-3" />
+												<span>Mở xem PDF ↗</span>
+											</a>
+										</div>
+									</div>
+								</div>
+
+								{/* Actions */}
+								<div className="flex items-center gap-2">
+									{!cv.is_active && (
+										<form action={setActiveCv}>
+											<input type="hidden" name="id" value={cv.id} />
+											<Button variant="outline" size="sm" type="submit" className="h-8 text-xs">
+												Đặt hiển thị
+											</Button>
+										</form>
+									)}
+									<ConfirmDeleteDialog
+										title="Xác nhận xóa CV?"
+										description="File CV này sẽ bị gỡ bỏ khỏi hệ thống."
+										itemName={cv.file_name || 'CV này'}
+										action={deleteCv}
+										itemId={cv.id}
+										size="sm"
+										className="h-8 text-xs"
+									/>
+								</div>
+							</div>
+						))}
+					</div>
 				)}
 			</div>
 		</div>
