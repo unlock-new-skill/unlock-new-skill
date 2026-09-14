@@ -159,7 +159,7 @@ export function TodoListPanel({
 			{/* Quick-Add Box */}
 			<form onSubmit={handleAddTodo} className="mb-6 flex gap-2">
 				<div className="relative flex-1">
-					<Plus className="absolute left-3 top-2.5 h-4.5 w-4.5 text-zinc-500" />
+					<Plus className="absolute left-3 top-1/2 -translate-y-1/2 h-4.5 w-4.5 text-zinc-500" />
 					<Input
 						type="text"
 						value={newTodoTitle}

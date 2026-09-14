@@ -25,11 +25,13 @@
 		"@radix-ui/react-slot": "^1.1.2",
 		"@radix-ui/react-tooltip": "^1.1.8",
 		"@tinymce/tinymce-react": "^6.3.0",
+		"@tiptap/extension-image": "^3.31.3",
 		"@tiptap/extension-placeholder": "^3.31.3",
 		"@tiptap/extension-task-item": "^3.31.3",
 		"@tiptap/extension-task-list": "^3.31.3",
 		"@tiptap/react": "^3.31.3",
 		"@tiptap/starter-kit": "^3.31.3",
+		"@tiptap/suggestion": "^3.31.3",
 		"animejs": "^4.0.1",
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",
@@ -49,7 +51,8 @@
 		"sonner": "^2.0.1",
 		"tailwind-merge": "^3.0.1",
 		"tailwindcss-animate": "^1.0.7",
-		"tinymce": "^8.8.2"
+		"tinymce": "^8.8.2",
+		"tippy.js": "^6.3.7"
 	},
 	"devDependencies": {
 		"autoprefixer": "^10.4.19",

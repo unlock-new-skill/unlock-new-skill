@@ -1,10 +1,15 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
+import ImageExtension from '@tiptap/extension-image'
+import { SlashCommands, slashSuggestion } from './slash-suggestion'
+import { getTodoUploadPresignedUrl } from '@/lib/todo-actions'
+import { toast } from 'sonner'
 import {
 	Bold,
 	Italic,
@@ -16,26 +21,136 @@ import {
 	Code,
 	Quote,
 	Undo,
-	Redo
+	Redo,
+	Upload
 } from 'lucide-react'
 
+// Helper to format bytes cleanly
+function formatBytes(bytes) {
+	if (bytes === 0) return '0 Bytes'
+	const k = 1024
+	const sizes = ['Bytes', 'KB', 'MB', 'GB']
+	const i = Math.floor(Math.log(bytes) / Math.log(k))
+	return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+}
+
 export function NotionEditor({ initialContent, onChange }) {
+	const fileInputRef = useRef(null)
+
 	const editor = useEditor({
 		extensions: [
 			StarterKit,
 			Placeholder.configure({
-				placeholder: "Ghi chú chi tiết công việc hoặc gõ văn bản tự do..."
+				placeholder: "Ghi chú chi tiết công việc. Gõ '/' để gọi lệnh nhanh hoặc thả tệp tin vào đây..."
 			}),
 			TaskList,
 			TaskItem.configure({
 				nested: true
+			}),
+			ImageExtension,
+			SlashCommands.configure({
+				suggestion: slashSuggestion
 			})
 		],
 		content: initialContent || '',
 		onUpdate: ({ editor }) => {
 			onChange(editor.getHTML())
+		},
+		editorProps: {
+			// Handle drag and drop files
+			handleDrop(view, event, slice, moved) {
+				if (!moved && event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files.length > 0) {
+					event.preventDefault()
+					const files = Array.from(event.dataTransfer.files)
+					handleFileUpload(files)
+					return true
+				}
+				return false
+			},
+			// Handle clipboard paste (e.g., screenshot)
+			handlePaste(view, event, slice) {
+				if (event.clipboardData && event.clipboardData.files && event.clipboardData.files.length > 0) {
+					event.preventDefault()
+					const files = Array.from(event.clipboardData.files)
+					handleFileUpload(files)
+					return true
+				}
+				return false
+			}
 		}
 	})
+
+	// Handle R2 direct uploading
+	const handleFileUpload = async (files) => {
+		if (!files || files.length === 0 || !editor) return
+
+		for (const file of files) {
+			const toastId = toast.loading(`Đang tải lên "${file.name}"...`)
+			try {
+				// 1. Get secure R2 presigned URL
+				const { uploadUrl, publicUrl } = await getTodoUploadPresignedUrl(
+					file.name,
+					file.type || 'application/octet-stream'
+				)
+
+				// 2. Direct PUT upload from browser to R2
+				const uploadRes = await fetch(uploadUrl, {
+					method: 'PUT',
+					body: file,
+					headers: {
+						'Content-Type': file.type || 'application/octet-stream'
+					}
+				})
+
+				if (!uploadRes.ok) throw new Error(`HTTP ${uploadRes.status}`)
+
+				// 3. Insert matching block in TipTap editor
+				if (file.type && file.type.startsWith('image/')) {
+					editor.chain().focus().setImage({ src: publicUrl, alt: file.name }).run()
+				} else {
+					const sizeFormatted = formatBytes(file.size)
+					const fileHtml = `
+						<a href="${publicUrl}" target="_blank" rel="noopener noreferrer" download="${file.name}" class="notion-file-card flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/60 p-3 hover:bg-zinc-900/60 transition-colors my-2 no-underline text-current select-none" data-file-size="${file.size}">
+							<span class="text-2xl shrink-0">📄</span>
+							<div class="flex-1 min-w-0">
+								<div class="text-sm font-semibold truncate text-zinc-200">${file.name}</div>
+								<div class="text-xs text-zinc-500">${sizeFormatted}</div>
+							</div>
+							<span class="text-xs text-zinc-400 border border-zinc-800 px-2 py-0.5 rounded hover:bg-zinc-800 shrink-0">Tải xuống</span>
+						</a>
+					`
+					editor.chain().focus().insertContent(fileHtml).run()
+				}
+
+				toast.success(`Đã tải lên tệp tin: "${file.name}"`, { id: toastId })
+			} catch (error) {
+				console.error('File upload failed:', error)
+				toast.error(`Lỗi tải lên "${file.name}": ${error.message || 'Lỗi kết nối Cloudflare'}`, { id: toastId })
+			}
+		}
+	}
+
+	// Listen to file picker requests dispatched from the slash commands menu
+	useEffect(() => {
+		const handleFilePicker = (e) => {
+			const type = e.detail?.type
+			if (fileInputRef.current) {
+				fileInputRef.current.accept = type === 'image' ? 'image/*' : '*'
+				fileInputRef.current.click()
+			}
+		}
+
+		window.addEventListener('open-todo-file-picker', handleFilePicker)
+		return () => {
+			window.removeEventListener('open-todo-file-picker', handleFilePicker)
+		}
+	}, [])
+
+	const handleFileInputChange = (e) => {
+		const files = Array.from(e.target.files || [])
+		handleFileUpload(files)
+		e.target.value = '' // Reset input
+	}
 
 	if (!editor) return null
 
@@ -56,6 +171,15 @@ export function NotionEditor({ initialContent, onChange }) {
 
 	return (
 		<div className="flex flex-col h-full overflow-hidden border border-zinc-850 rounded-lg bg-zinc-950/20">
+			{/* Hidden file input for file picker support */}
+			<input
+				type="file"
+				ref={fileInputRef}
+				onChange={handleFileInputChange}
+				className="hidden"
+				multiple
+			/>
+
 			{/* Format Toolbar */}
 			<div className="flex flex-wrap items-center gap-1 border-b border-zinc-850 px-3 py-1.5 bg-zinc-950/40 shrink-0">
 				<ToolbarButton
@@ -129,6 +253,17 @@ export function NotionEditor({ initialContent, onChange }) {
 					title="Trích dẫn"
 				>
 					<Quote className="h-4 w-4" />
+				</ToolbarButton>
+				<ToolbarButton
+					onClick={() => {
+						if (fileInputRef.current) {
+							fileInputRef.current.accept = '*'
+							fileInputRef.current.click()
+						}
+					}}
+					title="Tải lên tệp đính kèm"
+				>
+					<Upload className="h-4 w-4" />
 				</ToolbarButton>
 
 				<div className="ml-auto flex items-center gap-1">
@@ -209,6 +344,13 @@ export function NotionEditor({ initialContent, onChange }) {
 					margin: 0.5rem 0;
 					overflow-x: auto;
 				}
+				.custom-tiptap-prose .ProseMirror img {
+					max-width: 100%;
+					height: auto;
+					border-radius: 0.375rem;
+					margin: 0.75rem 0;
+					border: 1px solid #27272a;
+				}
 				.custom-tiptap-prose .ProseMirror ul[data-type="taskList"] {
 					list-style: none;
 					padding-left: 0;
@@ -229,6 +371,26 @@ export function NotionEditor({ initialContent, onChange }) {
 				.custom-tiptap-prose .ProseMirror ul[data-type="taskList"] input[type="checkbox"] {
 					accent-color: #10b981;
 					cursor: pointer;
+				}
+				
+				/* Styling for custom downloadable file card blocks */
+				.custom-tiptap-prose .notion-file-card {
+					display: flex;
+					align-items: center;
+					gap: 0.75rem;
+					border-radius: 0.5rem;
+					border: 1px solid #27272a;
+					background-color: rgba(9, 9, 11, 0.6);
+					padding: 0.75rem;
+					transition: background-color 0.2s, border-color 0.2s;
+					margin: 0.5rem 0;
+					text-decoration: none !important;
+					color: inherit !important;
+					user-select: none;
+				}
+				.custom-tiptap-prose .notion-file-card:hover {
+					background-color: rgba(24, 24, 27, 0.6);
+					border-color: #3f3f46;
 				}
 			`}</style>
 		</div>

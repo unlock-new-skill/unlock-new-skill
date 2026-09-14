@@ -4,6 +4,7 @@ import { cookies } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { prisma } from './prisma'
 import { SESSION_COOKIE, verifySessionToken } from './auth'
+import { createPresignedPutUrl, publicUrl } from './r2'
 
 /** Authenticate the admin session or throw. */
 async function requireAdmin() {
@@ -193,5 +194,29 @@ export async function deleteTodoItem(id) {
 	} catch (error) {
 		console.error('Error deleting todo item:', error)
 		throw new Error('Không thể xóa công việc')
+	}
+}
+
+/** Generate a presigned PUT URL and the final read URL for a Todo attachment. */
+export async function getTodoUploadPresignedUrl(fileName, contentType) {
+	await requireAdmin()
+	if (!fileName) throw new Error('Thiếu tên tệp tin')
+	if (!contentType) throw new Error('Thiếu định dạng tệp tin')
+
+	try {
+		// Clean and generate unique key
+		const cleanName = fileName.trim().replace(/[^a-zA-Z0-9.-]/g, '_')
+		const uniqueId = crypto.randomUUID()
+		const key = `todo-attachments/${uniqueId}-${cleanName}`
+
+		// Generate presigned PUT URL for bucket 'personal'
+		const uploadUrl = await createPresignedPutUrl(key, contentType, 'personal')
+		// Resolve the final read custom domain URL
+		const fileUrl = publicUrl(key, 'personal')
+
+		return { uploadUrl, publicUrl: fileUrl, key }
+	} catch (error) {
+		console.error('Error generating presigned upload URL for Todo:', error)
+		throw new Error('Không thể tạo liên kết tải tệp lên R2')
 	}
 }
