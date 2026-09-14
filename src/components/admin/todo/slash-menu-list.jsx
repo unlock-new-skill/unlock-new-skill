@@ -90,7 +90,7 @@ export const SlashMenuList = forwardRef(({ items, command }, ref) => {
 	return (
 		<div
 			ref={listRef}
-			className="w-64 max-h-80 overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-950 p-1.5 shadow-2xl flex flex-col gap-0.5 scrollbar-thin scrollbar-thumb-zinc-800"
+			className="w-64 max-h-80 overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-950 p-1.5 shadow-2xl flex flex-col gap-0.5 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
 		>
 			<div className="px-2 py-1 text-xxs font-bold text-zinc-500 uppercase tracking-wider border-b border-zinc-900 mb-1">
 				Khối nội dung

@@ -335,14 +335,33 @@ export function NotionEditor({ initialContent, onChange }) {
 					margin: 0.5rem 0;
 				}
 				.custom-tiptap-prose .ProseMirror pre {
-					background-color: #09090b;
-					color: #a7f3d0;
-					padding: 0.75rem;
-					border-radius: 0.375rem;
-					font-family: monospace;
-					font-size: 0.8rem;
-					margin: 0.5rem 0;
+					background-color: #18181b;
+					border: 1px solid #27272a;
+					color: #34d399;
+					padding: 0.85rem 1rem;
+					border-radius: 0.5rem;
+					font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+					font-size: 0.825rem;
+					margin: 0.75rem 0;
 					overflow-x: auto;
+				}
+				.custom-tiptap-prose .ProseMirror pre code {
+					background-color: transparent;
+					color: inherit;
+					padding: 0;
+					border-radius: 0;
+					border: none;
+					font-size: inherit;
+				}
+				.custom-tiptap-prose .ProseMirror code {
+					background-color: #27272a;
+					color: #f43f5e;
+					padding: 0.125rem 0.35rem;
+					border-radius: 0.25rem;
+					font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+					font-size: 0.85em;
+					border: 1px solid #3f3f46;
+					word-break: break-word;
 				}
 				.custom-tiptap-prose .ProseMirror img {
 					max-width: 100%;
