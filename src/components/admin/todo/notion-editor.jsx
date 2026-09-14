@@ -1,14 +1,17 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { useEditor, EditorContent } from '@tiptap/react'
+import { useEditor, EditorContent, ReactNodeViewRenderer } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import ImageExtension from '@tiptap/extension-image'
+import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
+import { common, createLowlight } from 'lowlight'
 import { SlashCommands, slashSuggestion } from './slash-suggestion'
 import { getTodoUploadPresignedUrl } from '@/lib/todo-actions'
+import { CodeBlockComponent } from './code-block-component'
 import { toast } from 'sonner'
 import {
 	Bold,
@@ -25,6 +28,8 @@ import {
 	Upload
 } from 'lucide-react'
 
+const lowlight = createLowlight(common)
+
 // Helper to format bytes cleanly
 function formatBytes(bytes) {
 	if (bytes === 0) return '0 Bytes'
@@ -39,7 +44,9 @@ export function NotionEditor({ initialContent, onChange }) {
 
 	const editor = useEditor({
 		extensions: [
-			StarterKit,
+			StarterKit.configure({
+				codeBlock: false // Disable basic codeBlock to load CodeBlockLowlight
+			}),
 			Placeholder.configure({
 				placeholder: "Ghi chú chi tiết công việc. Gõ '/' để gọi lệnh nhanh hoặc thả tệp tin vào đây..."
 			}),
@@ -48,6 +55,13 @@ export function NotionEditor({ initialContent, onChange }) {
 				nested: true
 			}),
 			ImageExtension,
+			CodeBlockLowlight.extend({
+				addNodeView() {
+					return ReactNodeViewRenderer(CodeBlockComponent)
+				}
+			}).configure({
+				lowlight
+			}),
 			SlashCommands.configure({
 				suggestion: slashSuggestion
 			})
@@ -334,16 +348,19 @@ export function NotionEditor({ initialContent, onChange }) {
 					font-style: italic;
 					margin: 0.5rem 0;
 				}
+				
+				/* Block Code Pre container styles */
 				.custom-tiptap-prose .ProseMirror pre {
 					background-color: #18181b;
 					border: 1px solid #27272a;
 					color: #34d399;
-					padding: 0.85rem 1rem;
+					padding: 0; /* padding is handled by container, but kept clean */
 					border-radius: 0.5rem;
 					font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 					font-size: 0.825rem;
-					margin: 0.75rem 0;
+					margin: 0;
 					overflow-x: auto;
+					white-space: pre-wrap; /* Crucial: ensures spaces and lines wrap correctly without collapsing! */
 				}
 				.custom-tiptap-prose .ProseMirror pre code {
 					background-color: transparent;
@@ -352,7 +369,10 @@ export function NotionEditor({ initialContent, onChange }) {
 					border-radius: 0;
 					border: none;
 					font-size: inherit;
+					white-space: pre-wrap;
 				}
+				
+				/* Inline Code style */
 				.custom-tiptap-prose .ProseMirror code {
 					background-color: #27272a;
 					color: #f43f5e;
@@ -363,6 +383,40 @@ export function NotionEditor({ initialContent, onChange }) {
 					border: 1px solid #3f3f46;
 					word-break: break-word;
 				}
+				
+				/* Syntax Highlighting Colors via Lowlight */
+				.custom-tiptap-prose .hljs-comment,
+				.custom-tiptap-prose .hljs-quote {
+					color: #71717a;
+					font-style: italic;
+				}
+				.custom-tiptap-prose .hljs-keyword,
+				.custom-tiptap-prose .hljs-selector-tag {
+					color: #f43f5e;
+					font-weight: 600;
+				}
+				.custom-tiptap-prose .hljs-string,
+				.custom-tiptap-prose .hljs-meta {
+					color: #10b981;
+				}
+				.custom-tiptap-prose .hljs-number,
+				.custom-tiptap-prose .hljs-literal {
+					color: #f59e0b;
+				}
+				.custom-tiptap-prose .hljs-type,
+				.custom-tiptap-prose .hljs-built_in {
+					color: #3b82f6;
+				}
+				.custom-tiptap-prose .hljs-title,
+				.custom-tiptap-prose .hljs-section,
+				.custom-tiptap-prose .hljs-function {
+					color: #a855f7;
+				}
+				.custom-tiptap-prose .hljs-params,
+				.custom-tiptap-prose .hljs-variable {
+					color: #e4e4e7;
+				}
+				
 				.custom-tiptap-prose .ProseMirror img {
 					max-width: 100%;
 					height: auto;
