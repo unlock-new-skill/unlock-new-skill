@@ -58,6 +58,16 @@ export function NotionEditor({ initialContent, onChange }) {
 			CodeBlockLowlight.extend({
 				addNodeView() {
 					return ReactNodeViewRenderer(CodeBlockComponent)
+				},
+				addKeyboardShortcuts() {
+					return {
+						Tab: ({ editor }) => {
+							if (editor.isActive('codeBlock')) {
+								return editor.commands.insertContent('\t')
+							}
+							return false
+						}
+					}
 				}
 			}).configure({
 				lowlight
